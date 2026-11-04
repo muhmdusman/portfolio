@@ -5,8 +5,6 @@ import {
   CylinderGeometry,
   DoubleSide,
   type Group,
-  InstancedMesh,
-  Matrix4,
   MeshBasicMaterial,
   MeshStandardMaterial,
   type Object3D,
@@ -21,47 +19,21 @@ import {
   Vector3,
   AdditiveBlending,
 } from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { box, getGlowTexture, glowCard, group, mesh, palette, rbox, type Materials } from "../core/kit";
+import { createKeyboard } from "./Keyboard";
 
 /**
- * The computer setup: desk, monitor (with the live UsmanOS screen),
- * an instanced mechanical keyboard that reacts to typing, mouse, desk lamp,
+ * The computer setup: desk, a large monitor (with the live UsmanOS screen),
+ * a 75% mechanical keyboard that reacts to typing, mouse, desk lamp,
  * coffee mug and an RGB PC tower.
  */
 
 export const DESK_TOP = 0.78;
-export const SCREEN_CENTER = new Vector3(0.35, 1.275, -2.165);
-export const SCREEN_SIZE = { w: 1.1, h: 0.61875 };
-export const MUG_TOP = new Vector3(1.25, DESK_TOP + 0.11, -1.95);
-export const KEYBOARD_CENTER = new Vector3(0.28, DESK_TOP + 0.04, -1.72);
-
-type KeyDef = [code: string, width: number];
-const ROWS: KeyDef[][] = [
-  [["Escape", 1], ...[..."1234567890-="].map((k): KeyDef => [k, 1]), ["Backspace", 2]],
-  [["Tab", 1.5], ...[..."qwertyuiop[]"].map((k): KeyDef => [k, 1]), ["\\", 1.5]],
-  [["CapsLock", 1.75], ...[..."asdfghjkl;'"].map((k): KeyDef => [k, 1]), ["Enter", 2.25]],
-  [["Shift", 2.25], ...[..."zxcvbnm,./"].map((k): KeyDef => [k, 1]), ["ShiftRight", 2.75]],
-  [
-    ["Control", 1.25],
-    ["Meta", 1.25],
-    ["Alt", 1.25],
-    [" ", 6.25],
-    ["AltRight", 1.25],
-    ["Fn", 1.25],
-    ["ContextMenu", 1.25],
-    ["ControlRight", 1.25],
-  ],
-];
-
-const SHIFTED: Record<string, string> = {
-  "!": "1", "@": "2", "#": "3", $: "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
-  _: "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/",
-  "~": "Escape", "`": "Escape",
-};
-
-const MODIFIERS = new Set(["Tab", "CapsLock", "Shift", "ShiftRight", "Control", "Meta", "Alt", "AltRight", "Fn", "ContextMenu", "ControlRight", "Backspace"]);
+export const SCREEN_SIZE = { w: 1.44, h: 0.81 };
+export const SCREEN_CENTER = new Vector3(0.35, 0.975 + SCREEN_SIZE.h / 2, -2.165);
+export const MUG_TOP = new Vector3(1.32, DESK_TOP + 0.11, -1.98);
+export const KEYBOARD_POS = new Vector3(0.3, DESK_TOP + 0.012, -1.69);
 
 export type RgbMode = "rainbow" | "brand" | "off";
 
@@ -74,6 +46,8 @@ export interface ComputerParts {
   lampLight: PointLight;
   tower: Group;
   mug: Group;
+  /** World-space point just above the keyboard. */
+  keyboardCenter: Vector3;
   pressKey(key: string): void;
   setLamp(on: boolean): void;
   setRgb(mode: RgbMode): void;
@@ -85,7 +59,7 @@ export interface ComputerParts {
 export function createComputer(
   mats: Materials,
   screenTexture: Texture,
-  opts: { lights: boolean },
+  opts: { lights: boolean; font: string; mobile: boolean },
 ): ComputerParts {
   const root = group("computer");
   const props: Object3D[] = [];
@@ -93,8 +67,8 @@ export function createComputer(
 
   // ---- desk ----------------------------------------------------------------------
   const desk = group("desk");
-  desk.add(rbox(2.3, 0.065, 0.88, 0.02, mats.wood, 0.35, DESK_TOP - 0.0325, -1.96));
-  for (const x of [-0.72, 1.42]) {
+  desk.add(rbox(2.6, 0.065, 0.88, 0.02, mats.wood, 0.35, DESK_TOP - 0.0325, -1.96, undefined, 5));
+  for (const x of [-0.86, 1.56]) {
     desk.add(
       box(0.045, DESK_TOP - 0.065, 0.045, mats.metalDark, x, (DESK_TOP - 0.065) / 2, -2.3),
       box(0.045, DESK_TOP - 0.065, 0.045, mats.metalDark, x, (DESK_TOP - 0.065) / 2, -1.62),
@@ -102,171 +76,93 @@ export function createComputer(
       box(0.04, 0.04, 0.72, mats.metalDark, x, DESK_TOP - 0.085, -1.96),
     );
   }
-  desk.add(box(2.1, 0.04, 0.03, mats.metalDark, 0.35, 0.58, -2.3));
+  desk.add(box(2.4, 0.04, 0.03, mats.metalDark, 0.35, 0.58, -2.3));
   // desk mat with an accent outline
   desk.add(
-    rbox(1.34, 0.006, 0.47, 0.01, mats.accent, 0.52, DESK_TOP + 0.003, -1.72, { cast: false }),
-    rbox(1.32, 0.008, 0.45, 0.01, mats.deskMat, 0.52, DESK_TOP + 0.005, -1.72, { cast: false }),
+    rbox(1.52, 0.006, 0.52, 0.012, mats.accent, 0.52, DESK_TOP + 0.003, -1.7, { cast: false }),
+    rbox(1.5, 0.008, 0.5, 0.012, mats.deskMat, 0.52, DESK_TOP + 0.005, -1.7, { cast: false }),
   );
   root.add(desk);
   props.push(desk);
 
   // ---- monitor --------------------------------------------------------------------
   const monitor = group("monitor");
+  const sc = SCREEN_CENTER;
+  const bezelBottom = sc.y - SCREEN_SIZE.h / 2 - 0.03;
+  const bezelTop = sc.y + SCREEN_SIZE.h / 2 + 0.014;
   monitor.add(
-    rbox(0.42, 0.022, 0.25, 0.008, mats.metal, 0.35, DESK_TOP + 0.011, -2.16),
-    rbox(0.075, 0.43, 0.035, 0.012, mats.metal, 0.35, DESK_TOP + 0.23, -2.245),
-    rbox(1.16, 0.68, 0.045, 0.02, mats.plasticDark, 0.35, 1.27, -2.19),
-    rbox(0.62, 0.4, 0.07, 0.03, mats.plasticDark, 0.35, 1.25, -2.235),
+    rbox(0.5, 0.02, 0.28, 0.008, mats.metal, sc.x, DESK_TOP + 0.01, -2.14, undefined, 4),
+    rbox(0.085, 0.5, 0.03, 0.012, mats.metal, sc.x, DESK_TOP + 0.26, -2.262, undefined, 4),
+    rbox(SCREEN_SIZE.w + 0.028, bezelTop - bezelBottom, 0.034, 0.014, mats.plasticDark, sc.x, (bezelTop + bezelBottom) / 2, -2.186, undefined, 4),
+    rbox(0.86, 0.5, 0.06, 0.03, mats.plasticDark, sc.x, sc.y - 0.03, -2.225, undefined, 4),
   );
-  const screen = mesh(
-    new PlaneGeometry(SCREEN_SIZE.w, SCREEN_SIZE.h),
-    new MeshBasicMaterial({ map: screenTexture, toneMapped: false }),
-    { cast: false, receive: false },
-  );
+  // a slim chin strip in the brand color
+  monitor.add(box(0.12, 0.004, 0.002, mats.metal, sc.x, bezelBottom + 0.014, -2.1685, { cast: false }));
+  const screenMat = new MeshBasicMaterial({ map: screenTexture, toneMapped: false });
+  // Sample one mip level sharper than default so small UI text stays crisp.
+  screenMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#ifdef USE_MAP
+        diffuseColor *= texture2D( map, vMapUv, -0.6 );
+      #endif`,
+    );
+  };
+  screenMat.customProgramCacheKey = () => "screen-lod-bias";
+  disposables.push(screenMat);
+  const screen = mesh(new PlaneGeometry(SCREEN_SIZE.w, SCREEN_SIZE.h), screenMat, { cast: false, receive: false });
   screen.position.copy(SCREEN_CENTER);
   screen.name = "screen";
   monitor.add(screen);
   // power LED
-  monitor.add(box(0.012, 0.006, 0.004, mats.led, 0.86, 0.947, -2.166, { cast: false, receive: false }));
+  monitor.add(box(0.012, 0.005, 0.003, mats.led, sc.x + SCREEN_SIZE.w / 2 - 0.02, bezelBottom + 0.014, -2.1685, { cast: false, receive: false }));
   // bias lighting washing the wall behind the monitor
-  const bias = glowCard(palette.brand, 2.8, 1.7, 0.55);
-  bias.position.set(0.35, 1.32, -2.395);
+  const bias = glowCard(palette.brand, 3.5, 2.1, 0.5);
+  bias.position.set(sc.x, sc.y + 0.02, -2.395);
   monitor.add(bias);
   root.add(monitor);
   props.push(monitor);
 
   if (opts.lights) {
     const screenLight = new PointLight("#5aa8ff", 2.4, 3.6, 2);
-    screenLight.position.set(0.35, 1.25, -1.72);
+    screenLight.position.set(sc.x, sc.y - 0.1, -1.6);
     root.add(screenLight);
   }
 
-  // ---- keyboard (single instanced draw call for all keycaps) -------------------------
-  const keyboard = group("keyboard");
-  const KB_Y = DESK_TOP + 0.009;
-  keyboard.add(rbox(0.64, 0.026, 0.225, 0.008, mats.plasticDark, KEYBOARD_CENTER.x, KB_Y + 0.013, KEYBOARD_CENTER.z));
-  const U = 0.04;
-  const capGeo = new RoundedBoxGeometry(0.034, 0.016, 0.034, 2, 0.006);
-  disposables.push(capGeo);
-  const keyCount = ROWS.reduce((n, row) => n + row.length, 0);
-  const caps = new InstancedMesh(capGeo, mats.keycap, keyCount);
-  caps.castShadow = true;
-  caps.receiveShadow = true;
-  const keyIndex = new Map<string, number>();
-  const basePos: Vector3[] = [];
-  const baseScale: Vector3[] = [];
-  const baseColor: Color[] = [];
-  const m4 = new Matrix4();
-  const q = new Quaternion();
-  let idx = 0;
-  ROWS.forEach((row, r) => {
-    let x = KEYBOARD_CENTER.x - 7.5 * U;
-    const z = KEYBOARD_CENTER.z - 2 * U + r * U;
-    for (const [code, width] of row) {
-      const cx = x + (width * U) / 2;
-      const pos = new Vector3(cx, KB_Y + 0.026 + 0.008, z);
-      const scale = new Vector3((width * U - 0.006) / 0.034, 1, 1);
-      basePos.push(pos);
-      baseScale.push(scale);
-      m4.compose(pos, q, scale);
-      caps.setMatrixAt(idx, m4);
-      const color = new Color(
-        code === "Escape" ? "#ff8a3d" : code === "Enter" ? palette.brand : MODIFIERS.has(code) ? "#46516e" : palette.cream,
-      );
-      baseColor.push(color);
-      caps.setColorAt(idx, color);
-      if (!keyIndex.has(code)) keyIndex.set(code, idx);
-      idx++;
-      x += width * U;
-    }
-  });
-  caps.instanceMatrix.needsUpdate = true;
-  if (caps.instanceColor) caps.instanceColor.needsUpdate = true;
-  keyboard.add(caps);
-  root.add(keyboard);
-  props.push(keyboard);
-
-  const pressAmount = new Float32Array(keyCount);
-  const glowColor = new Color(palette.brandSoft);
-  const tmpColor = new Color();
-  const tmpPos = new Vector3();
-
-  function press(code: string) {
-    const i = keyIndex.get(code);
-    if (i !== undefined) pressAmount[i] = 1;
-  }
-
-  function pressKey(key: string) {
-    if (key === "Backspace" || key === "Enter" || key === " ") return press(key);
-    if (key.length !== 1) return;
-    const lower = key.toLowerCase();
-    if (keyIndex.has(lower)) {
-      if (key !== lower) press("Shift");
-      return press(lower);
-    }
-    const base = SHIFTED[key];
-    if (base) {
-      press("Shift");
-      press(base);
-      return;
-    }
-    if (key === "’" || key === "‘") return press("'");
-    // Anything else (emoji, accents): tap a letter so the keyboard still reacts.
-    press("asdfjkl"[key.charCodeAt(0) % 7]);
-  }
-
-  function updateKeys(dt: number) {
-    let dirty = false;
-    for (let i = 0; i < keyCount; i++) {
-      const a = pressAmount[i];
-      if (a <= 0) continue;
-      const next = Math.max(0, a - dt / 0.22);
-      pressAmount[i] = next;
-      // fast press, slower release
-      const p = next > 0.7 ? (1 - next) / 0.3 : next / 0.7;
-      tmpPos.copy(basePos[i]);
-      tmpPos.y -= 0.007 * p;
-      m4.compose(tmpPos, q, baseScale[i]);
-      caps.setMatrixAt(i, m4);
-      tmpColor.copy(baseColor[i]).lerp(glowColor, p * 0.85);
-      caps.setColorAt(i, tmpColor);
-      dirty = true;
-    }
-    if (dirty) {
-      caps.instanceMatrix.needsUpdate = true;
-      if (caps.instanceColor) caps.instanceColor.needsUpdate = true;
-    }
-  }
+  // ---- keyboard -------------------------------------------------------------------
+  const keyboard = createKeyboard(mats, { position: KEYBOARD_POS, font: opts.font });
+  root.add(keyboard.root);
+  props.push(keyboard.root);
 
   // ---- mouse -----------------------------------------------------------------------
   const mouse = group("mouse");
-  const mouseBody = mesh(new SphereGeometry(0.05, 22, 14), mats.plasticLight);
-  mouseBody.scale.set(0.62, 0.38, 1);
-  const wheel = mesh(new CylinderGeometry(0.008, 0.008, 0.01, 12), mats.black, { cast: false });
+  const mouseBody = mesh(new SphereGeometry(0.05, 48, 32, 0, Math.PI * 2, 0, Math.PI / 2), mats.plasticLight);
+  mouseBody.scale.set(0.62, 0.42, 1);
+  const wheel = mesh(new CylinderGeometry(0.008, 0.008, 0.01, 24), mats.black, { cast: false });
   wheel.rotation.z = Math.PI / 2;
-  wheel.position.set(0, 0.018, -0.02);
-  mouse.add(mouseBody, wheel);
-  mouse.position.set(0.98, DESK_TOP + 0.009, -1.7);
+  wheel.position.set(0, 0.019, -0.022);
+  const split = box(0.0015, 0.004, 0.045, mats.black, 0, 0.019, -0.03, { cast: false });
+  mouse.add(mouseBody, wheel, split);
+  mouse.position.set(1.02, DESK_TOP + 0.009, -1.66);
   mouse.rotation.y = -0.12;
   root.add(mouse);
   props.push(mouse);
 
   // ---- desk lamp -----------------------------------------------------------------------
   const lamp = group("lamp");
-  const lampBase = new Vector3(-0.55, DESK_TOP, -2.16);
-  const elbow = new Vector3(-0.5, 1.28, -2.3);
-  const head = new Vector3(-0.27, 1.4, -2.0);
-  lamp.add(mesh(new CylinderGeometry(0.085, 0.1, 0.026, 26), mats.plasticLight));
+  const lampBase = new Vector3(-0.74, DESK_TOP, -2.12);
+  const elbow = new Vector3(-0.72, 1.24, -2.3);
+  const head = new Vector3(-0.56, 1.36, -1.98);
+  lamp.add(mesh(new CylinderGeometry(0.085, 0.1, 0.026, 64), mats.plasticLight));
   lamp.children[0].position.copy(lampBase).setY(DESK_TOP + 0.013);
   const armGeo = (a: Vector3, b: Vector3) => {
     const dir = new Vector3().subVectors(b, a);
-    const g = new CylinderGeometry(0.012, 0.012, dir.length(), 10);
+    const g = new CylinderGeometry(0.012, 0.012, dir.length(), 20);
     g.applyQuaternion(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), dir.normalize()));
     g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
     return g;
   };
-  const jointGeo = new SphereGeometry(0.022, 12, 10);
+  const jointGeo = new SphereGeometry(0.022, 24, 16);
   const armParts: BufferGeometry[] = [
     armGeo(lampBase.clone().setY(DESK_TOP + 0.02), elbow),
     armGeo(elbow, head),
@@ -275,13 +171,13 @@ export function createComputer(
   lamp.add(mesh(mergeGeometries(armParts), mats.plasticLight));
   armParts.forEach((g) => g.dispose());
   jointGeo.dispose();
-  const shade = mesh(new CylinderGeometry(0.035, 0.11, 0.15, 26, 1, true), new MeshStandardMaterial({ color: palette.cream, roughness: 0.55, side: DoubleSide }));
-  const shadeDir = new Vector3(0.25, -1, 0.45).normalize();
+  const shade = mesh(new CylinderGeometry(0.035, 0.11, 0.15, 64, 1, true), new MeshStandardMaterial({ color: palette.cream, roughness: 0.55, side: DoubleSide }));
+  const shadeDir = new Vector3(0.38, -1, 0.42).normalize();
   shade.quaternion.setFromUnitVectors(new Vector3(0, -1, 0), shadeDir);
   shade.position.copy(head);
   lamp.add(shade);
   const bulbPos = head.clone().addScaledVector(shadeDir, 0.05);
-  const bulb = mesh(new SphereGeometry(0.034, 14, 10), mats.bulb, { cast: false, receive: false });
+  const bulb = mesh(new SphereGeometry(0.034, 28, 20), mats.bulb, { cast: false, receive: false });
   bulb.position.copy(bulbPos);
   lamp.add(bulb);
   const bulbGlow = new Sprite(
@@ -295,7 +191,7 @@ export function createComputer(
   lamp.add(lampLight);
   const lampPool = glowCard(palette.warm, 1.5, 1.1, 0.16);
   lampPool.rotation.x = -Math.PI / 2;
-  lampPool.position.set(-0.05, DESK_TOP + 0.012, -1.86);
+  lampPool.position.set(-0.32, DESK_TOP + 0.012, -1.84);
   lamp.add(lampPool);
   root.add(lamp);
   props.push(lamp);
@@ -311,13 +207,13 @@ export function createComputer(
   const mug = group("mug");
   const mugMat = new MeshStandardMaterial({ color: palette.brand, roughness: 0.4, side: DoubleSide });
   disposables.push(mugMat);
-  mug.add(mesh(new CylinderGeometry(0.046, 0.04, 0.105, 22, 1, true), mugMat));
-  mug.add(mesh(new CylinderGeometry(0.04, 0.04, 0.004, 22), mugMat));
+  mug.add(mesh(new CylinderGeometry(0.046, 0.04, 0.105, 48, 1, true), mugMat));
+  mug.add(mesh(new CylinderGeometry(0.04, 0.04, 0.004, 48), mugMat));
   mug.children[1].position.y = -0.05;
-  const coffee = mesh(new CylinderGeometry(0.043, 0.043, 0.004, 22), new MeshStandardMaterial({ color: "#3b2416", roughness: 0.25 }), { cast: false });
+  const coffee = mesh(new CylinderGeometry(0.043, 0.043, 0.004, 48), new MeshStandardMaterial({ color: "#3b2416", roughness: 0.25 }), { cast: false });
   coffee.position.y = 0.035;
   mug.add(coffee);
-  const handle = mesh(new TorusGeometry(0.028, 0.008, 8, 18, Math.PI), mugMat);
+  const handle = mesh(new TorusGeometry(0.028, 0.008, 16, 32, Math.PI), mugMat);
   handle.rotation.z = -Math.PI / 2;
   handle.position.set(0.045, 0, 0);
   mug.add(handle);
@@ -328,7 +224,7 @@ export function createComputer(
 
   // ---- PC tower with RGB ------------------------------------------------------------------------
   const tower = group("tower");
-  const TX = 1.86;
+  const TX = 1.96;
   const TZ = -1.95;
   tower.add(rbox(0.36, 0.62, 0.68, 0.02, mats.plasticDark, TX, 0.33, TZ));
   for (const [dx, dz] of [
@@ -356,7 +252,7 @@ export function createComputer(
   const bladeGeo = mergeGeometries(bladeParts);
   bladeParts.forEach((g) => g.dispose());
   disposables.push(bladeGeo);
-  const ringGeo = new TorusGeometry(0.085, 0.007, 8, 40);
+  const ringGeo = new TorusGeometry(0.085, 0.007, 12, 72);
   disposables.push(ringGeo);
   const fans: Object3D[] = [];
   const makeFan = (mat: MeshBasicMaterial, x: number, y: number, z: number, rotY: number) => {
@@ -381,7 +277,7 @@ export function createComputer(
   glass.position.set(TX + 0.182, 0.33, TZ);
   tower.add(glass);
   // power button
-  const power = mesh(new CylinderGeometry(0.014, 0.014, 0.006, 16), mats.led, { cast: false, receive: false });
+  const power = mesh(new CylinderGeometry(0.014, 0.014, 0.006, 32), mats.led, { cast: false, receive: false });
   power.position.set(TX + 0.08, 0.643, TZ + 0.26);
   tower.add(power);
   root.add(tower);
@@ -397,6 +293,7 @@ export function createComputer(
   let rgbMode: RgbMode = "rainbow";
   function setRgb(mode: RgbMode) {
     rgbMode = mode;
+    keyboard.setBacklight(mode);
     if (mode === "off") {
       ringMats.forEach((m) => m.color.set("#1a2233"));
       if (rgbLight) rgbLight.visible = false;
@@ -409,7 +306,7 @@ export function createComputer(
   const violet = new Color(palette.violet);
   function update(dt: number, time: number, motion: number) {
     // key presses are direct feedback to typing, so they animate even with reduced motion
-    updateKeys(dt);
+    keyboard.update(dt, time, motion);
     for (const f of fans) f.rotation.z -= dt * motion * (rgbMode === "off" ? 2 : 9);
     if (rgbMode === "rainbow") {
       ringMats.forEach((m, i) => m.color.setHSL((time * 0.07 + i * 0.12) % 1, 0.95, 0.58));
@@ -433,11 +330,13 @@ export function createComputer(
     lampLight,
     tower,
     mug,
-    pressKey,
+    keyboardCenter: keyboard.center,
+    pressKey: keyboard.pressKey,
     setLamp,
     setRgb,
     update,
     dispose() {
+      keyboard.dispose();
       disposables.forEach((d) => d.dispose());
     },
   };

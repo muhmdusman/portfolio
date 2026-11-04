@@ -45,9 +45,19 @@ export function Scene() {
     let world: { dispose(): void } | null = null;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // The hover label follows the pointer without re-rendering React.
+    // The hover label follows the pointer without re-rendering React, and
+    // flips to the left of the pointer near the right edge.
+    let tipWidth = 0;
+    let px = 0;
+    let py = 0;
+    const placeTip = () => {
+      const x = px + 16 + tipWidth > window.innerWidth - 8 ? px - 12 - tipWidth : px + 16;
+      tip.style.transform = `translate3d(${x}px, ${py + 18}px, 0)`;
+    };
     const onPointerMove = (e: PointerEvent) => {
-      tip.style.transform = `translate3d(${e.clientX + 16}px, ${e.clientY + 18}px, 0)`;
+      px = e.clientX;
+      py = e.clientY;
+      placeTip();
     };
     window.addEventListener("pointermove", onPointerMove, { passive: true });
 
@@ -69,6 +79,8 @@ export function Scene() {
           onHover: (label) => {
             tip.textContent = label ?? "";
             tip.dataset.visible = label ? "true" : "false";
+            tipWidth = label ? tip.offsetWidth : 0;
+            placeTip();
           },
           onNavigate: (id) => scrollToSection(id, !reducedMotion),
         });

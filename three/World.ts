@@ -22,13 +22,14 @@ import {
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { profile, projects, type SectionId } from "@/content/portfolio";
 import type { PortfolioState, PortfolioStore } from "@/lib/store";
-import { CameraRig } from "./CameraRig";
+import { CameraRig, CLOSE_UPS } from "./CameraRig";
 import { createMaterials, palette } from "./core/kit";
-import { clamp, easeOutBack } from "./core/math";
-import { loadImage } from "./core/textures";
+import { clamp, damp, easeInOutCubic, easeOutBack, lerp } from "./core/math";
+import { configureTextures, loadImage } from "./core/textures";
 import { createAtmosphere } from "./objects/Atmosphere";
-import { createComputer, KEYBOARD_CENTER, MUG_TOP, type RgbMode } from "./objects/Computer";
-import { createRoom } from "./objects/Room";
+import { createComputer, MUG_TOP, type RgbMode } from "./objects/Computer";
+import { createPosters } from "./objects/Posters";
+import { CHAIR_POSES, createRoom } from "./objects/Room";
 import { ScreenUI } from "./objects/ScreenUI";
 import { createSkillsRing } from "./objects/SkillsRing";
 
@@ -42,7 +43,7 @@ export interface WorldOptions {
   onNavigate?: (section: SectionId) => void;
 }
 
-type HotspotId = "lamp" | "duck" | "tower" | "screen" | "plant" | "mug";
+type HotspotId = "lamp" | "duck" | "tower" | "screen" | "plant" | "mug" | "poster0" | "poster1";
 
 interface Hotspot {
   id: HotspotId;
@@ -60,8 +61,13 @@ function detectTier() {
   const mobile = coarse || small;
   return {
     mobile,
-    maxDpr: mobile ? 1.5 : cores <= 4 ? 1.5 : 2,
-    shadowSize: mobile ? 1024 : 2048,
+    /** Render at the display's real density (capped at 2) so edges and text stay sharp. */
+    maxDpr: 2,
+    /** Adaptive scaling never goes below this, so the scene never looks pixelated. */
+    minDpr: 1,
+    shadowSize: mobile ? 2048 : cores > 4 ? 4096 : 2048,
+    /** Texture detail multiplier for canvas-drawn textures. */
+    texScale: mobile ? 0.75 : 1,
     stars: mobile ? 450 : 900,
     bugs: mobile ? 22 : 40,
     extraLights: !mobile,
@@ -82,6 +88,7 @@ export class World {
   private screen!: ScreenUI;
   private computer!: ReturnType<typeof createComputer>;
   private room!: ReturnType<typeof createRoom>;
+  private posters!: ReturnType<typeof createPosters>;
   private atmosphere!: ReturnType<typeof createAtmosphere>;
   private skills: Awaited<ReturnType<typeof createSkillsRing>> | null = null;
   private envTexture: Texture | null = null;
@@ -96,6 +103,7 @@ export class World {
   private frameAcc = 0;
   private frameCount = 0;
   private goodStreak = 0;
+  private slowStreak = 0;
 
   private readonly pointer = new Vector2(9, 9);
   private pointerDirty = false;
@@ -108,6 +116,8 @@ export class World {
   private rgbIndex = 0;
   private duckT = 1;
   private plantT = 1;
+  /** 0 = chair at the desk, 1 = rolled aside so it never blocks the close-ups. */
+  private chairT = 0;
   private flash: { label: string; until: number } | null = null;
 
   constructor(opts: WorldOptions) {
@@ -119,7 +129,8 @@ export class World {
 
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
-      antialias: window.devicePixelRatio < 2,
+      // MSAA on every display: thin parts (keycap gaps, bezels, desk legs) shimmer without it.
+      antialias: true,
       powerPreference: "high-performance",
       alpha: false,
       stencil: false,
@@ -169,22 +180,31 @@ export class World {
     moon.shadow.radius = 3;
     scene.add(hemi, moon, moon.target);
 
+    configureTextures({
+      anisotropy: Math.min(16, renderer.capabilities.getMaxAnisotropy()),
+      scale: 2 * tier.texScale,
+    });
     const mats = createMaterials();
     Object.values(mats).forEach((m) => this.disposables.push(m));
 
     const state = this.opts.store.getState();
     this.screen = new ScreenUI(state, this.opts.fonts, tier.mobile, renderer.capabilities.getMaxAnisotropy());
-    this.computer = createComputer(mats, this.screen.texture, { lights: tier.extraLights });
+    this.computer = createComputer(mats, this.screen.texture, {
+      lights: tier.extraLights,
+      font: this.opts.fonts.sans,
+      mobile: tier.mobile,
+    });
     this.room = createRoom(mats, { lights: tier.extraLights, photo: profile.image });
     this.atmosphere = createAtmosphere(mats, {
       stars: tier.stars,
       clouds: true,
       bugs: tier.bugs,
-      bugsOrigin: new Vector3(KEYBOARD_CENTER.x, KEYBOARD_CENTER.y + 0.05, KEYBOARD_CENTER.z),
+      bugsOrigin: this.computer.keyboardCenter.clone().add(new Vector3(0, 0.03, 0)),
       steamOrigin: MUG_TOP,
     });
-    scene.add(this.room.root, this.computer.root, this.atmosphere.root);
-    this.props = [...this.room.props.slice(0, 2), ...this.computer.props, ...this.room.props.slice(2)];
+    this.posters = createPosters({ fonts: this.opts.fonts });
+    scene.add(this.room.root, this.posters.root, this.computer.root, this.atmosphere.root);
+    this.props = [...this.room.props.slice(0, 2), this.posters.root, ...this.computer.props, ...this.room.props.slice(2)];
 
     try {
       this.skills = await createSkillsRing(renderer.capabilities.getMaxAnisotropy());
@@ -283,6 +303,7 @@ export class World {
       make("duck", r.duck, () => "Ask the debugging duck"),
       make("plant", r.plant, () => "Water the plant"),
       make("mug", c.mug, () => "More coffee"),
+      ...this.posters.items.map((item, i) => make(i === 0 ? "poster0" : "poster1", item.object, () => item.quote)),
     ];
   }
 
@@ -431,6 +452,11 @@ export class World {
       case "mug":
         this.say("Refilled. Shipping speed +10%");
         break;
+      case "poster0":
+      case "poster1":
+        this.posters.wobble(h.id === "poster0" ? 0 : 1);
+        this.say(h.label());
+        break;
     }
   }
 
@@ -448,6 +474,7 @@ export class World {
     const t = this.time;
 
     this.rig.update(dt, window.scrollY, t);
+    this.updateChair(dt);
 
     // intro: props pop in one after another, shadows follow until it ends
     if (this.introClock >= 0) {
@@ -467,6 +494,7 @@ export class World {
     }
 
     this.computer.update(dt, t, motion);
+    this.posters.update(dt * motion);
     this.atmosphere.update(t);
     const state = this.opts.store.getState();
     this.skills?.update(dt, t, this.rig.weights.skills, state.skillCategory, motion, this.camera.position, this.rig.target, this.camera);
@@ -505,28 +533,54 @@ export class World {
     this.adaptQuality(dt);
   };
 
-  /** Lower the pixel ratio when frames run long, raise it again with headroom. */
+  private updateChair(dt: number) {
+    let goal = 0;
+    for (const id of CLOSE_UPS) goal += this.rig.weights[id];
+    const next = this.opts.reducedMotion ? goal : damp(this.chairT, goal, 2.6, dt);
+    if (Math.abs(next - this.chairT) < 1e-4) return;
+    this.chairT = next;
+    const e = easeInOutCubic(next);
+    const { desk, aside } = CHAIR_POSES;
+    const chair = this.room.chair;
+    chair.position.set(lerp(desk.x, aside.x, e), 0, lerp(desk.z, aside.z, e));
+    chair.rotation.y = lerp(desk.rot, aside.rot, e);
+    // shadows are static after the intro; refresh them while the chair moves
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * Lower the pixel ratio only when frames are consistently slow, and never
+   * below 1. The intro (shader warm-up, shadow updates) is not measured.
+   */
   private adaptQuality(dt: number) {
+    if (this.introClock >= 0) return;
     this.frameAcc += dt;
     this.frameCount++;
-    if (this.frameAcc < 1.5) return;
+    if (this.frameAcc < 2) return;
     const avg = this.frameAcc / this.frameCount;
     this.frameAcc = 0;
     this.frameCount = 0;
     const max = Math.min(window.devicePixelRatio || 1, this.tier.maxDpr);
-    if (avg > 1 / 38 && this.dpr > 0.75) {
-      this.dpr = Math.max(0.75, this.dpr - 0.25);
+    const min = Math.min(max, this.tier.minDpr);
+    const apply = (next: number) => {
+      this.dpr = next;
+      this.renderer.setPixelRatio(next);
+      this.atmosphere.setPixelRatio(next);
+    };
+    if (avg > 1 / 30 && this.dpr > min) {
       this.goodStreak = 0;
-      this.renderer.setPixelRatio(this.dpr);
-      this.atmosphere.setPixelRatio(this.dpr);
-    } else if (avg < 1 / 55 && this.dpr < max) {
-      if (++this.goodStreak >= 3) {
+      if (++this.slowStreak >= 2) {
+        this.slowStreak = 0;
+        apply(Math.max(min, this.dpr - 0.25));
+      }
+    } else if (avg < 1 / 50 && this.dpr < max) {
+      this.slowStreak = 0;
+      if (++this.goodStreak >= 2) {
         this.goodStreak = 0;
-        this.dpr = Math.min(max, this.dpr + 0.25);
-        this.renderer.setPixelRatio(this.dpr);
-        this.atmosphere.setPixelRatio(this.dpr);
+        apply(Math.min(max, this.dpr + 0.25));
       }
     } else {
+      this.slowStreak = 0;
       this.goodStreak = 0;
     }
   }
@@ -539,6 +593,7 @@ export class World {
     this.screen?.dispose();
     this.skills?.dispose();
     this.room?.dispose();
+    this.posters?.dispose();
     this.computer?.dispose();
     this.atmosphere?.dispose();
     this.envTexture?.dispose();

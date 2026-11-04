@@ -12,7 +12,10 @@ export function SectionTracker() {
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            store.setState({ section: entry.target.getAttribute("data-section") as SectionId });
+            const section = entry.target.getAttribute("data-section") as SectionId;
+            // CSS hook, e.g. a darker veil while the camera is at the desk
+            document.documentElement.dataset.section = section;
+            store.setState({ section });
           }
         }
       },

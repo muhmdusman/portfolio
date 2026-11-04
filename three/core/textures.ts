@@ -1,6 +1,24 @@
 import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Texture } from "three";
 import { mulberry32 } from "./math";
 
+/** Set once by the World from the renderer's capabilities and the device tier. */
+export const textureQuality = { anisotropy: 1, scale: 2 };
+
+export function configureTextures(opts: { anisotropy: number; scale: number }) {
+  textureQuality.anisotropy = opts.anisotropy;
+  textureQuality.scale = opts.scale;
+}
+
+/**
+ * A canvas whose drawing code works in `width` x `height` logical units while
+ * the pixel size is multiplied by the quality scale (2x on desktop).
+ */
+export function createScaledCanvas(width: number, height: number, scale = textureQuality.scale) {
+  const { canvas, ctx } = createCanvas(Math.round(width * scale), Math.round(height * scale));
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  return { canvas, ctx };
+}
+
 export function createCanvas(width: number, height: number) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -13,6 +31,7 @@ export function createCanvas(width: number, height: number) {
 export function toTexture(canvas: HTMLCanvasElement, srgb = true): CanvasTexture {
   const texture = new CanvasTexture(canvas);
   if (srgb) texture.colorSpace = SRGBColorSpace;
+  texture.anisotropy = textureQuality.anisotropy;
   return texture;
 }
 
@@ -37,7 +56,7 @@ export function roundRect(
 /** Soft radial falloff used by every additive glow card. */
 export function glowTexture(): Texture {
   const size = 128;
-  const { canvas, ctx } = createCanvas(size, size);
+  const { canvas, ctx } = createScaledCanvas(size, size, 2);
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, "rgba(255,255,255,1)");
   g.addColorStop(0.25, "rgba(255,255,255,0.55)");
@@ -51,7 +70,7 @@ export function glowTexture(): Texture {
 /** Warm wooden planks with a little grain. */
 export function floorTexture(): Texture {
   const size = 512;
-  const { canvas, ctx } = createCanvas(size, size);
+  const { canvas, ctx } = createScaledCanvas(size, size);
   const rand = mulberry32(7);
   const rows = 8;
   const rowH = size / rows;
@@ -86,7 +105,7 @@ export function floorTexture(): Texture {
 
 export function rugTexture(accent: string): Texture {
   const size = 512;
-  const { canvas, ctx } = createCanvas(size, size);
+  const { canvas, ctx } = createScaledCanvas(size, size);
   const c = size / 2;
   const rings = ["#15233f", "#1c2f52", "#15233f", accent, "#1c2f52", "#15233f", "#22385f", "#15233f"];
   rings.forEach((color, i) => {
@@ -110,7 +129,7 @@ export function rugTexture(accent: string): Texture {
 export function windowSkyTexture(): Texture {
   const w = 256;
   const h = 256;
-  const { canvas, ctx } = createCanvas(w, h);
+  const { canvas, ctx } = createScaledCanvas(w, h);
   const g = ctx.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, "#08142c");
   g.addColorStop(0.65, "#163768");
@@ -151,7 +170,7 @@ export function windowSkyTexture(): Texture {
 
 export function moonTexture(): Texture {
   const size = 256;
-  const { canvas, ctx } = createCanvas(size, size);
+  const { canvas, ctx } = createScaledCanvas(size, size);
   const c = size / 2;
   const halo = ctx.createRadialGradient(c, c, 0, c, c, c);
   halo.addColorStop(0, "rgba(255,248,225,1)");

@@ -12,7 +12,7 @@ interface ProjectListProps {
 }
 
 const STATUS_LABEL: Record<Project["status"], string> = {
-  live: "Delivered",
+  live: "Completed",
   "in-progress": "In development",
   archived: "Archived · closed by client",
 };

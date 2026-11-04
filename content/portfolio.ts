@@ -97,12 +97,6 @@ export const socials: SocialLink[] = [
   { label: "Credly", href: "https://credly.com/users/usman2789", icon: "mdi:certificate", handle: "Certifications" },
 ];
 
-export const stats = [
-  { value: "25+", label: "Projects delivered" },
-  { value: "3", label: "Countries served" },
-  { value: "+58%", label: "Organic clicks at Markaz" },
-];
-
 export const skillsSection = {
   eyebrow: "Technical Skills",
   title: "My *Technical* Expertise",
@@ -243,17 +237,17 @@ export const projects: Project[] = [
   {
     slug: "al-taj-ristorante",
     title: "Al Taj Ristorante",
-    subtitle: "Ristorante",
+    subtitle: "Restaurant Website",
     image: "/images/projects/al-taj-ristorante.webp",
-    detailsTitle: "Italian Ristorante (in development)",
+    detailsTitle: "Website for an Italian Ristorante",
     description:
-      "Developed Al Taj Ristorante, an Italy-based restaurant website that offers a variety of Pak-Indian dishes and a seamless online ordering experience.",
+      "Designed and developed the website for Al Taj Ristorante, a restaurant in Italy serving Pakistani, Indian and Italian dishes. It includes the full menu, online ordering and table reservations.",
     type: "Website",
     stack: ["Next.js"],
     platform: "Custom (Built with Code)",
-    country: "Pakistan",
+    country: "Italy",
     url: "https://www.altaj-ristorante.it",
-    status: "in-progress",
+    status: "live",
   },
   {
     slug: "taleem-ka-safar",
@@ -390,3 +384,10 @@ export const contactSection = {
   subtitle:
     "Always available for freelancing if the right project comes along. Feel free to contact me.",
 };
+
+/** Hero numbers. "Countries served" is derived from the project list so it stays correct. */
+export const stats = [
+  { value: "25+", label: "Projects delivered" },
+  { value: String(new Set(projects.map((p) => p.country)).size), label: "Countries served" },
+  { value: "+58%", label: "Organic clicks at Markaz" },
+];
