@@ -1,0 +1,375 @@
+/* --------------------------------------------------------------- 3D scene */
+
+.scene {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100lvh;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 65% at 68% 48%, #0e2549 0%, rgba(4, 12, 22, 0) 70%),
+    radial-gradient(35% 35% at 88% 18%, rgba(139, 92, 246, 0.16), transparent 70%),
+    var(--bg);
+}
+
+.scene__canvas {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.4s var(--ease-out);
+}
+
+html[data-scene="ready"] .scene__canvas {
+  opacity: 1;
+}
+
+/* No WebGL (or it failed): show a pre-rendered frame of the same room. */
+html[data-scene="unsupported"] .scene,
+html[data-scene="error"] .scene {
+  background:
+    url("/images/room-fallback.webp") 62% 50% / cover no-repeat,
+    var(--bg);
+}
+
+.scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Keeps text readable on the left while the scene stays vivid on the right. */
+.scene__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(4, 12, 22, 0.94) 0%, rgba(4, 12, 22, 0.8) 30%, rgba(4, 12, 22, 0.3) 47%, rgba(4, 12, 22, 0) 60%),
+    linear-gradient(0deg, rgba(4, 12, 22, 0.75) 0%, rgba(4, 12, 22, 0) 18%),
+    linear-gradient(180deg, rgba(4, 12, 22, 0.6) 0%, rgba(4, 12, 22, 0) 14%);
+}
+
+.scene-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(6, 14, 28, 0.88);
+  color: var(--text);
+  font: 500 12px/1.2 var(--ff-mono);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+  will-change: transform;
+}
+
+.scene-tip[data-visible="true"] {
+  opacity: 1;
+}
+
+@media (max-width: 860px) {
+  .scene__veil {
+    background: linear-gradient(180deg, rgba(4, 12, 22, 0.55) 0%, rgba(4, 12, 22, 0) 16%, rgba(4, 12, 22, 0) 40%, rgba(4, 12, 22, 0.7) 70%, rgba(4, 12, 22, 0.9) 100%);
+  }
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px var(--gutter);
+  background: linear-gradient(180deg, rgba(4, 12, 22, 0.88), rgba(4, 12, 22, 0));
+  pointer-events: none;
+}
+
+.topbar > * {
+  pointer-events: auto;
+}
+
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.topbar__logo {
+  width: 40px;
+  height: 40px;
+  color: var(--brand);
+  border-radius: 10px;
+  filter: drop-shadow(0 8px 18px rgba(7, 136, 255, 0.45));
+  transition: transform 0.3s var(--ease-out);
+}
+
+.topbar__brand:hover .topbar__logo {
+  transform: rotate(-6deg) scale(1.05);
+}
+
+.topbar__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 500 12.5px/1 var(--ff-mono);
+  color: var(--muted);
+}
+
+.topbar__tz {
+  color: var(--faint);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(6, 14, 28, 0.6);
+  color: var(--text);
+  transition: border-color 0.2s;
+}
+
+.status:hover {
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
+.status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulse 2.2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 8px rgba(74, 222, 128, 0);
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 14px 16px;
+  }
+
+  .topbar__name,
+  .topbar__time {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------- dock */
+
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 50;
+  transform: translateX(-50%);
+  animation: dock-in 0.9s var(--ease-out) 0.4s both;
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 40px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.dock__panel {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(22, 34, 62, 0.5);
+  box-shadow:
+    0 24px 60px -16px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+.dock__item {
+  --scale: 1;
+  --size: 50px;
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: center;
+  width: calc(var(--size) * var(--scale));
+  height: calc(var(--size) * var(--scale));
+  border-radius: 28%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dock__item:focus-visible {
+  outline-offset: 4px;
+  border-radius: 14px;
+}
+
+.dock__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 26%;
+  background: linear-gradient(180deg, var(--g1), var(--g2));
+  color: #fff;
+  box-shadow:
+    0 10px 22px -10px var(--g2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.dock__icon::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 52% 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+}
+
+.dock__icon .icon {
+  position: relative;
+  width: 54%;
+  height: 54%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.dock__item--home { --g1: #3b82f6; --g2: #1d4ed8; }
+.dock__item--skills { --g1: #a855f7; --g2: #6d28d9; }
+.dock__item--projects { --g1: #f59e0b; --g2: #ea580c; }
+.dock__item--experience { --g1: #14b8a6; --g2: #0f766e; }
+.dock__item--contact { --g1: #ec4899; --g2: #be185d; }
+.dock__item--github { --g1: #313b4f; --g2: #0d1117; }
+.dock__item--linkedin { --g1: #2d8cff; --g2: #0a66c2; }
+.dock__item--instagram { --g1: #f77737; --g2: #c13584; }
+.dock__item--credly { --g1: #ff8a3d; --g2: #e0531d; }
+
+.dock__label {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: rgba(12, 20, 38, 0.94);
+  color: var(--text);
+  font: 500 12px/1 var(--ff-sans);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  transition:
+    opacity 0.15s,
+    transform 0.15s var(--ease-out);
+}
+
+.dock__label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 5px solid transparent;
+  border-top-color: rgba(12, 20, 38, 0.94);
+  transform: translateX(-50%);
+}
+
+.dock__item:hover .dock__label,
+.dock__item:focus-visible .dock__label {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.dock__dot {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 0.3s;
+}
+
+.dock__item[aria-current="true"] .dock__dot {
+  opacity: 1;
+}
+
+.dock__sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 6px 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.dock__item.is-launching .dock__icon {
+  animation: dock-bounce 0.9s var(--ease-out);
+}
+
+@keyframes dock-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  20% {
+    transform: translateY(-22px);
+  }
+  42% {
+    transform: translateY(0);
+  }
+  62% {
+    transform: translateY(-9px);
+  }
+  80% {
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .dock__panel {
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 22px;
+  }
+
+  .dock__item {
+    --size: 42px;
+  }
+
+  /* also linked from the hero and contact sections */
+  .dock__item--extra {
+    display: none;
+  }
+}
