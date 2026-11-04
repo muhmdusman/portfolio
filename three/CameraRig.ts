@@ -1,4 +1,4 @@
-import { type PerspectiveCamera, Vector3 } from "three";
+import { MathUtils, type PerspectiveCamera, Vector3 } from "three";
 import type { SectionId } from "@/content/portfolio";
 import { clamp, damp, easeInOutCubic, lerp } from "./core/math";
 
@@ -12,25 +12,40 @@ interface Shot {
   pos: [number, number, number];
   target: [number, number, number];
   fov: number;
-  /** Screen-space shift of the scene, as a fraction of the viewport (x: right, y: up). */
+  /**
+   * Screen-space shift of the target, as a fraction of the viewport (x: right, y: up).
+   * On wide screens x is relative to the centre of the free area right of the text column.
+   */
   offset: [number, number];
 }
 
+/**
+ * Wide shots are tuned for 1440x900, where the free area right of the text
+ * column is 49% of the width. Other sizes keep the subject inside that area
+ * by scaling the field of view (see `frame`).
+ */
+const WIDE_REF = 1.6 * 0.493;
 const WIDE: Record<SectionId, Shot> = {
-  home: { pos: [7.4, 5.0, 8.4], target: [-0.15, 0.9, -0.7], fov: 34, offset: [0.2, 0.0] },
-  skills: { pos: [9.8, 6.9, 11.8], target: [-0.1, 1.2, 0.0], fov: 34, offset: [0.19, 0.02] },
-  projects: { pos: [1.0, 1.8, 0.3], target: [0.36, 1.275, -2.17], fov: 33, offset: [0.22, 0.0] },
-  experience: { pos: [2.0, 1.85, -0.3], target: [0.55, 1.4, -2.1], fov: 40, offset: [0.21, 0.0] },
-  contact: { pos: [0.85, 1.8, 0.05], target: [0.42, 1.06, -1.98], fov: 38, offset: [0.21, 0.0] },
+  home: { pos: [7.4, 5.0, 8.4], target: [-0.15, 0.9, -0.7], fov: 34, offset: [-0.033, 0.0] },
+  skills: { pos: [9.8, 6.9, 11.8], target: [-0.1, 1.2, 0.0], fov: 34, offset: [-0.043, 0.02] },
+  // close-ups: the 1.44 m monitor fills the free area, the keyboard sits below it
+  projects: { pos: [0.98, 1.78, 1.05], target: [0.37, 1.35, -2.165], fov: 33, offset: [0, 0.0] },
+  experience: { pos: [1.45, 1.9, 0.78], target: [0.42, 1.37, -2.165], fov: 33, offset: [0, 0.0] },
+  contact: { pos: [0.78, 2.3, 0.92], target: [0.36, 1.2, -2.0], fov: 35, offset: [0, 0.0] },
 };
 
+/** Tall shots are tuned for 390x844; the scene owns the top ~46% of the screen. */
+const TALL_REF = 390 / 844;
 const TALL: Record<SectionId, Shot> = {
   home: { pos: [8.4, 6.5, 10.2], target: [0.0, 1.0, -0.4], fov: 44, offset: [0, 0.2] },
   skills: { pos: [11.2, 8.6, 13.8], target: [0.0, 1.2, 0.0], fov: 46, offset: [0, 0.22] },
-  projects: { pos: [0.55, 1.95, 1.35], target: [0.35, 1.25, -2.17], fov: 40, offset: [0, 0.27] },
-  experience: { pos: [2.4, 2.5, 1.2], target: [0.3, 1.3, -2.05], fov: 44, offset: [0, 0.25] },
-  contact: { pos: [0.6, 2.4, 1.3], target: [0.4, 1.1, -1.95], fov: 44, offset: [0, 0.27] },
+  projects: { pos: [0.62, 1.95, 2.6], target: [0.36, 1.32, -2.165], fov: 40, offset: [0, 0.26] },
+  experience: { pos: [1.1, 2.1, 2.5], target: [0.38, 1.34, -2.165], fov: 40, offset: [0, 0.26] },
+  contact: { pos: [0.6, 2.75, 2.3], target: [0.36, 1.15, -1.95], fov: 42, offset: [0, 0.2] },
 };
+
+/** Sections where the camera is at the desk. */
+export const CLOSE_UPS: SectionId[] = ["projects", "experience", "contact"];
 
 const INTRO: Shot = { pos: [15, 12, 17], target: [0, 0.4, 0], fov: 40, offset: [0, 0] };
 
@@ -68,7 +83,9 @@ export class CameraRig {
 
   private tops: number[] = ORDER.map(() => 0);
   private tall = false;
-  private narrow = false;
+  /** Horizontal shift that centres a shot in the free area, and the matching zoom. */
+  private baseOx = 0;
+  private fovScale = 1;
   private readonly cur = makePose();
   private readonly desired = makePose();
   private readonly a = makePose();
@@ -99,7 +116,6 @@ export class CameraRig {
     this.width = width;
     this.height = height;
     this.tall = width / height < 0.85;
-    this.narrow = !this.tall && width < 1180;
     this.camera.aspect = width / height;
     this.lastFov = 0;
   }
@@ -109,6 +125,37 @@ export class CameraRig {
       const el = document.querySelector<HTMLElement>(`[data-section="${id}"]`);
       this.tops[i] = el ? el.getBoundingClientRect().top + window.scrollY : i * this.height;
     });
+    let panelRight = 0;
+    for (const el of document.querySelectorAll<HTMLElement>(".hero, [data-ui]")) {
+      panelRight = Math.max(panelRight, el.getBoundingClientRect().right);
+    }
+    this.frame(panelRight);
+  }
+
+  /**
+   * Fits shots to the layout. Wide screens centre the subject in the area
+   * right of the text column and zoom so it fills that area like it does at
+   * 1440x900. Tall screens keep the subject's width across phone sizes.
+   */
+  private frame(panelRight: number) {
+    const w = this.width;
+    const aspect = w / this.height;
+    let baseOx = 0;
+    let fovScale = 1;
+    if (this.tall) {
+      fovScale = clamp(TALL_REF / aspect, 0.85, 1.3);
+    } else if (w > 860) {
+      const margin = w * 0.02;
+      const left = Math.min((panelRight || w * 0.45) + margin, w * 0.72);
+      const right = w - margin;
+      baseOx = (left + right) / 2 / w - 0.5;
+      fovScale = clamp(WIDE_REF / (aspect * ((right - left) / w)), 0.92, 1.5);
+    }
+    if (baseOx !== this.baseOx || fovScale !== this.fovScale) {
+      this.baseOx = baseOx;
+      this.fovScale = fovScale;
+      this.lastFov = 0;
+    }
   }
 
   setPointer(x: number, y: number) {
@@ -191,7 +238,6 @@ export class CameraRig {
       this.weights[from] = 1 - e;
       this.weights[to] = e;
     }
-    if (this.narrow) this.desired.ox *= 1.18;
   }
 
   private copy(out: Pose, src: Pose) {
@@ -218,8 +264,9 @@ export class CameraRig {
     const fovChanged = Math.abs(this.cur.fov - this.lastFov) > 1e-4;
     const offChanged = Math.abs(this.cur.ox - this.lastOx) > 1e-5 || Math.abs(this.cur.oy - this.lastOy) > 1e-5;
     if (fovChanged || offChanged) {
-      cam.fov = this.cur.fov;
-      cam.setViewOffset(this.width, this.height, -this.cur.ox * this.width, this.cur.oy * this.height, this.width, this.height);
+      cam.fov = MathUtils.radToDeg(2 * Math.atan(Math.tan(MathUtils.degToRad(this.cur.fov) / 2) * this.fovScale));
+      const ox = this.baseOx + this.cur.ox;
+      cam.setViewOffset(this.width, this.height, -ox * this.width, this.cur.oy * this.height, this.width, this.height);
       this.lastFov = this.cur.fov;
       this.lastOx = this.cur.ox;
       this.lastOy = this.cur.oy;

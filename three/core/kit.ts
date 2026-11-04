@@ -55,9 +55,9 @@ export function createMaterials() {
     orange: std("#ff8a3d", 0.55),
     fabric: std("#222b3f", 0.95),
     fabricAccent: std(palette.brand, 0.9),
-    leafA: std("#2e9b5f", 0.75, 0, { flatShading: true }),
-    leafB: std("#3cbf73", 0.75, 0, { flatShading: true }),
-    leafC: std("#1f7a48", 0.75, 0, { flatShading: true }),
+    leafA: std("#2e9b5f", 0.7),
+    leafB: std("#3cbf73", 0.7),
+    leafC: std("#1f7a48", 0.7),
     pot: std("#c9673e", 0.85),
     duck: std("#ffd23f", 0.45),
     black: std("#0a0c11", 0.45),
@@ -66,7 +66,7 @@ export function createMaterials() {
     neon: new MeshBasicMaterial({ color: palette.brandSoft, toneMapped: false }),
     bulb: new MeshBasicMaterial({ color: "#ffe2b8", toneMapped: false }),
     led: new MeshBasicMaterial({ color: "#5cff9d", toneMapped: false }),
-    cloud: std("#58698f", 1, 0, { flatShading: true, emissive: new Color("#1a2748"), emissiveIntensity: 0.7 }),
+    cloud: std("#5d6f98", 1, 0, { emissive: new Color("#1a2748"), emissiveIntensity: 0.75 }),
   };
 }
 
@@ -129,8 +129,9 @@ export function rbox(
   y = 0,
   z = 0,
   opts?: MeshOpts,
+  segments = 4,
 ) {
-  const m = mesh(new RoundedBoxGeometry(w, h, d, 3, radius), material, opts);
+  const m = mesh(new RoundedBoxGeometry(w, h, d, segments, radius), material, opts);
   m.position.set(x, y, z);
   return m;
 }

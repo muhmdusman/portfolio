@@ -40,14 +40,34 @@ html[data-scene="error"] .scene {
   height: 100%;
 }
 
-/* Keeps text readable on the left while the scene stays vivid on the right. */
+/*
+ * Keeps text readable on the left while the scene stays vivid on the right.
+ * --edge is the right edge of the text column (.wrap left + widest panel).
+ */
 .scene__veil {
+  --edge: max(var(--gutter), (100% - 1320px) / 2) + 590px;
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(4, 12, 22, 0.94) 0%, rgba(4, 12, 22, 0.8) 30%, rgba(4, 12, 22, 0.3) 47%, rgba(4, 12, 22, 0) 60%),
+    linear-gradient(90deg, rgba(4, 12, 22, 0.94) 0%, rgba(4, 12, 22, 0.8) calc(var(--edge) - 240px), rgba(4, 12, 22, 0.3) calc(var(--edge)), rgba(4, 12, 22, 0) calc(var(--edge) + 160px)),
     linear-gradient(0deg, rgba(4, 12, 22, 0.75) 0%, rgba(4, 12, 22, 0) 18%),
     linear-gradient(180deg, rgba(4, 12, 22, 0.6) 0%, rgba(4, 12, 22, 0) 14%);
+}
+
+/* At the desk the wall posters sit behind the headings, so dim that side more. */
+.scene__veil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(4, 12, 22, 0.72) 0%, rgba(4, 12, 22, 0.7) calc(var(--edge) - 70px), rgba(4, 12, 22, 0) calc(var(--edge) + 50px));
+  opacity: 0;
+  transition: opacity 0.9s var(--ease-out);
+}
+
+html[data-section="projects"] .scene__veil::after,
+html[data-section="experience"] .scene__veil::after,
+html[data-section="contact"] .scene__veil::after {
+  opacity: 1;
 }
 
 .scene-tip {
@@ -75,6 +95,10 @@ html[data-scene="error"] .scene {
 @media (max-width: 860px) {
   .scene__veil {
     background: linear-gradient(180deg, rgba(4, 12, 22, 0.55) 0%, rgba(4, 12, 22, 0) 16%, rgba(4, 12, 22, 0) 40%, rgba(4, 12, 22, 0.7) 70%, rgba(4, 12, 22, 0.9) 100%);
+  }
+
+  .scene__veil::after {
+    display: none;
   }
 }
 

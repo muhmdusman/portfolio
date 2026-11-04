@@ -2,7 +2,6 @@ import {
   CapsuleGeometry,
   CylinderGeometry,
   type Group,
-  IcosahedronGeometry,
   type Material,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -13,6 +12,7 @@ import {
   SRGBColorSpace,
   type Texture,
   TextureLoader,
+  TorusGeometry,
   Vector3,
   type BufferGeometry,
   type Object3D,
@@ -21,7 +21,7 @@ import {
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { box, glowCard, group, mesh, palette, rbox, type Materials } from "../core/kit";
 import { mulberry32 } from "../core/math";
-import { createCanvas, rugTexture, toTexture, windowSkyTexture } from "../core/textures";
+import { createScaledCanvas, rugTexture, textureQuality, toTexture, windowSkyTexture } from "../core/textures";
 
 /**
  * The cut-away room: floor slab, two walls, window, wall decor, a corner
@@ -30,11 +30,18 @@ import { createCanvas, rugTexture, toTexture, windowSkyTexture } from "../core/t
 
 export const ROOM = { minX: -2.58, maxX: 2.5, minZ: -2.58, maxZ: 2.5, inner: -2.4, height: 3.2 };
 
+/** Where the office chair stands: at the desk, or rolled aside for the desk close-ups. */
+export const CHAIR_POSES = {
+  desk: { x: 0.62, z: -0.78, rot: -0.55 },
+  aside: { x: -0.25, z: -0.32, rot: 0.35 },
+};
+
 export interface RoomParts {
   root: Group;
   /** Groups that pop in during the intro, in order. */
   props: Object3D[];
   duck: Group;
+  chair: Group;
   plant: Group;
   neonLight: PointLight | null;
   neonMaterial: MeshBasicMaterial;
@@ -49,13 +56,13 @@ function segmentTube(points: Vector3[], radius: number) {
     const b = points[i + 1];
     const dir = new Vector3().subVectors(b, a);
     const len = dir.length();
-    const cyl = new CylinderGeometry(radius, radius, len, 10, 1, true);
+    const cyl = new CylinderGeometry(radius, radius, len, 20, 1, true);
     cyl.applyQuaternion(new Quaternion().setFromUnitVectors(up, dir.normalize()));
     cyl.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
     parts.push(cyl);
   }
   for (const p of points) {
-    const s = new SphereGeometry(radius, 10, 8);
+    const s = new SphereGeometry(radius, 20, 14);
     s.translate(p.x, p.y, p.z);
     parts.push(s);
   }
@@ -65,7 +72,7 @@ function segmentTube(points: Vector3[], radius: number) {
 }
 
 function stickyNotesTexture() {
-  const { canvas, ctx } = createCanvas(768, 256);
+  const { canvas, ctx } = createScaledCanvas(768, 256);
   const notes: Array<[string, string[], number]> = [
     ["#ffe27a", ["ship it", "→ prod"], -0.05],
     ["#7ee0c3", ["LCP < 2.5s", "CLS < 0.1"], 0.04],
@@ -159,6 +166,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   const photoMat = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.6 });
   loader.load(opts.photo, (tex: Texture) => {
     tex.colorSpace = SRGBColorSpace;
+    tex.anisotropy = textureQuality.anisotropy;
     photoMat.map = tex;
     photoMat.needsUpdate = true;
     disposables.push(tex);
@@ -190,13 +198,13 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   const neonGlow = glowCard(palette.brand, 2.4, 1.5, 0.5);
   neonGlow.position.z = -0.035;
   neon.add(neonGlow);
-  neon.position.set(-1.25, 2.3, -2.33);
+  neon.position.set(0.35, 2.22, -2.33);
   root.add(neon);
   props.push(neon);
   let neonLight: PointLight | null = null;
   if (opts.lights) {
     neonLight = new PointLight(palette.brandSoft, 1.4, 3.2, 2);
-    neonLight.position.set(-1.25, 2.2, -2.05);
+    neonLight.position.set(0.35, 2.12, -2.05);
     root.add(neonLight);
   }
 
@@ -246,7 +254,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   const succulent = group(
     "succulent",
     mesh(new CylinderGeometry(0.05, 0.04, 0.07, 14), mats.paper),
-    mesh(new IcosahedronGeometry(0.05, 0), mats.leafA),
+    mesh(new SphereGeometry(0.05, 24, 16), mats.leafA),
   );
   succulent.children[0].position.y = 0.035;
   succulent.children[1].position.y = 0.09;
@@ -264,39 +272,60 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     const uv = geo.attributes.uv;
     for (let k = 0; k < uv.count; k++) uv.setX(k, (uv.getX(k) + i) / 3);
     const note = mesh(geo, new MeshStandardMaterial({ map: notesTex, roughness: 0.9 }), { cast: false });
-    note.position.set(1.12 + (i % 2) * 0.19, 1.6 - i * 0.12 + (i === 2 ? 0.05 : 0), -2.397);
+    note.position.set(1.32 + (i % 2) * 0.19, 1.6 - i * 0.12 + (i === 2 ? 0.05 : 0), -2.397);
     note.rotation.z = (i - 1) * 0.06;
     notes.add(note);
   }
   root.add(notes);
   props.push(notes);
 
-  // ---- corner plant -----------------------------------------------------------
+  // ---- corner plant (kept below the posters) --------------------------------------
   const plant = group("plant");
   plant.add(
-    mesh(new CylinderGeometry(0.25, 0.19, 0.46, 22), mats.pot),
-    mesh(new CylinderGeometry(0.23, 0.23, 0.02, 22), new MeshStandardMaterial({ color: "#2a1a12", roughness: 1 })),
-    mesh(new CylinderGeometry(0.018, 0.026, 0.7, 8), mats.woodDark),
+    mesh(new CylinderGeometry(0.24, 0.18, 0.42, 48), mats.pot),
+    mesh(new CylinderGeometry(0.22, 0.22, 0.02, 48), new MeshStandardMaterial({ color: "#2a1a12", roughness: 1 })),
+    mesh(new TorusGeometry(0.235, 0.014, 12, 64), mats.pot),
   );
-  plant.children[0].position.y = 0.23;
-  plant.children[1].position.y = 0.468;
-  plant.children[2].position.y = 0.8;
+  plant.children[0].position.y = 0.21;
+  plant.children[1].position.y = 0.41;
+  plant.children[2].position.y = 0.415;
+  plant.children[2].rotation.x = Math.PI / 2;
   const rand = mulberry32(42);
   const leafMats = [mats.leafA, mats.leafB, mats.leafC];
   const leaves = group("leaves");
-  const leafGeo = new IcosahedronGeometry(1, 0);
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + rand() * 0.4;
-    const r = i < 3 ? 0.05 : 0.18 + rand() * 0.12;
-    const leaf = mesh(leafGeo, leafMats[i % 3]);
-    const size = 0.17 + rand() * 0.12;
-    leaf.scale.set(size, size * (0.8 + rand() * 0.3), size);
-    leaf.position.set(Math.cos(a) * r, 0.95 + rand() * 0.55 + (i < 3 ? 0.25 : 0), Math.sin(a) * r);
-    leaf.rotation.set(rand() * 3, rand() * 3, rand() * 3);
-    leaves.add(leaf);
+  // soft foliage blobs: a sphere with gentle noise, shared by every cluster
+  const blob = new SphereGeometry(1, 32, 22);
+  const bp = blob.getAttribute("position");
+  for (let i = 0; i < bp.count; i++) {
+    const x = bp.getX(i);
+    const y = bp.getY(i);
+    const z = bp.getZ(i);
+    const n = 1 + 0.07 * Math.sin(x * 5.1 + y * 3.3) * Math.cos(z * 4.7 - y * 2.1);
+    bp.setXYZ(i, x * n, y * n, z * n);
   }
+  blob.computeVertexNormals();
+  const stems: BufferGeometry[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + rand() * 0.5;
+    const r = i < 3 ? 0.04 : 0.13 + rand() * 0.1;
+    const h = 0.72 + rand() * 0.4 + (i < 3 ? 0.16 : 0);
+    const leaf = mesh(blob, leafMats[i % 3]);
+    const size = 0.13 + rand() * 0.07;
+    leaf.scale.set(size * 1.15, size * (0.85 + rand() * 0.25), size);
+    leaf.position.set(Math.cos(a) * r, h, Math.sin(a) * r);
+    leaf.rotation.set(rand() * 0.6, rand() * Math.PI, rand() * 0.6);
+    leaves.add(leaf);
+    const stem = new CylinderGeometry(0.007, 0.01, h - 0.4, 8);
+    const tilt = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(Math.cos(a) * r, h - 0.4, Math.sin(a) * r).normalize());
+    stem.applyQuaternion(tilt);
+    stem.translate((Math.cos(a) * r) / 2, 0.4 + (h - 0.4) / 2, (Math.sin(a) * r) / 2);
+    stems.push(stem);
+  }
+  const stemGeo = mergeGeometries(stems);
+  stems.forEach((g) => g.dispose());
+  plant.add(mesh(stemGeo, mats.woodDark));
   plant.add(leaves);
-  plant.position.set(-1.92, 0, -1.92);
+  plant.position.set(-1.9, 0, -1.9);
   root.add(plant);
   props.push(plant);
 
@@ -304,7 +333,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   const rugTex = rugTexture(palette.brand);
   disposables.push(rugTex);
   const rugTop = new MeshStandardMaterial({ map: rugTex, roughness: 1 });
-  const rug = mesh(new CylinderGeometry(1.2, 1.2, 0.014, 64), [mats.fabric, rugTop, rugTop], { cast: false });
+  const rug = mesh(new CylinderGeometry(1.2, 1.2, 0.014, 128), [mats.fabric, rugTop, rugTop], { cast: false });
   rug.position.set(0.45, 0.007, -0.7);
   root.add(rug);
   props.push(rug);
@@ -346,8 +375,8 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     chair.add(box(0.035, 0.17, 0.035, mats.metalDark, side * 0.27, 0.6, 0.02));
     chair.add(rbox(0.07, 0.03, 0.26, 0.012, mats.plasticDark, side * 0.27, 0.69, 0.0));
   }
-  chair.position.set(0.62, 0, -0.78);
-  chair.rotation.y = -0.55;
+  chair.position.set(CHAIR_POSES.desk.x, 0, CHAIR_POSES.desk.z);
+  chair.rotation.y = CHAIR_POSES.desk.rot;
   root.add(chair);
   props.push(chair);
 
@@ -355,6 +384,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     root,
     props,
     duck,
+    chair,
     plant: leaves,
     neonLight,
     neonMaterial,

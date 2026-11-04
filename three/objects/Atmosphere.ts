@@ -4,7 +4,7 @@ import {
   BufferGeometry,
   Color,
   type Group,
-  IcosahedronGeometry,
+  SphereGeometry,
   InstancedMesh,
   Matrix4,
   Points,
@@ -148,7 +148,7 @@ function cloudGeometry() {
     puffs.push([Math.cos(a) * 0.62, 0.05 + rand() * 0.12, Math.sin(a) * 0.38, r]);
   }
   const parts = puffs.map(([x, y, z, r]) => {
-    const g = new IcosahedronGeometry(r, 1);
+    const g = new SphereGeometry(r, 28, 18);
     g.translate(x, y, z);
     return g;
   });

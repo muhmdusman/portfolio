@@ -9,13 +9,14 @@ import {
 } from "@/content/portfolio";
 import { icons, type IconName } from "@/lib/icons";
 import type { PortfolioState } from "@/lib/store";
-import { clamp, easeOutCubic, shortHash } from "../core/math";
+import { clamp, easeInOutCubic, easeOutCubic, shortHash } from "../core/math";
 import { createCanvas, roundRect } from "../core/textures";
 
 /**
  * Draws the "UsmanOS" desktop that lives on the 3D monitor. Everything is
- * painted into a single 2D canvas that is uploaded as a texture only when
- * something visible changed (typing, caret blink, transitions).
+ * painted into one 2D canvas (2048 x 1152 px on desktop) that is uploaded as
+ * a texture only when something visible changed. Layout units are a
+ * 1280 x 720 logical grid; the canvas transform scales them up.
  */
 
 type Mode = "off" | "boot" | SectionId;
@@ -23,6 +24,10 @@ type Seg = [text: string, color: string];
 
 const W = 1280;
 const H = 720;
+const MENU_H = 38;
+const TITLE_H = 48;
+/** Windowed apps; the browser runs full screen so screenshots get the most room. */
+const WIN = { x: 40, y: MENU_H + 10, w: 1200, h: 576 };
 
 const DOCK_GRADIENTS: Record<SectionId, [string, string]> = {
   home: ["#3b82f6", "#1d4ed8"],
@@ -50,8 +55,8 @@ const APP_NAMES: Record<SectionId, string> = {
 
 const C = {
   text: "#e6ebf5",
-  dim: "#8b95a8",
-  faint: "#566179",
+  dim: "#93a0b8",
+  faint: "#5f6b85",
   green: "#4ade80",
   blue: "#5ab8ff",
   cyan: "#38bdf8",
@@ -78,12 +83,16 @@ export interface ScreenFonts {
   mono: string;
 }
 
+/** Screenshot auto-scroll: hold at the top, scroll down, hold, scroll back up. */
+const SCROLL = { hold: 1.6, down: 2.6, pause: 1.2, up: 1.8 };
+
 export class ScreenUI {
   readonly texture: CanvasTexture;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly scale: number;
   private readonly fonts: ScreenFonts;
   private wallpaper: HTMLCanvasElement | null = null;
+  private windowShadow: HTMLCanvasElement | null = null;
 
   private state: PortfolioState;
   private mode: Mode = "off";
@@ -94,6 +103,7 @@ export class ScreenUI {
   private images = new Map<string, HTMLImageElement>();
   private projectPrev = -1;
   private projectT = 1;
+  private scrollClock = 0;
   private skillT = 1;
   private expT = 0;
 
@@ -108,12 +118,14 @@ export class ScreenUI {
   constructor(state: PortfolioState, fonts: ScreenFonts, small: boolean, maxAnisotropy: number) {
     this.state = state;
     this.fonts = fonts;
-    this.scale = small ? 0.8 : 1;
+    this.scale = small ? 1.2 : 1.6;
     const { canvas, ctx } = createCanvas(Math.round(W * this.scale), Math.round(H * this.scale));
     this.ctx = ctx;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     this.texture = new CanvasTexture(canvas);
     this.texture.colorSpace = SRGBColorSpace;
-    this.texture.anisotropy = Math.min(8, maxAnisotropy);
+    this.texture.anisotropy = Math.min(16, maxAnisotropy);
     this.texture.minFilter = LinearMipmapLinearFilter;
     this.texture.magFilter = LinearFilter;
     this.draw();
@@ -127,12 +139,13 @@ export class ScreenUI {
     this.dirty = true;
   }
 
-  /** Skip the boot animation (reduced motion). */
+  /** Skip the boot animation and all auto-animations (reduced motion). */
   wake() {
     this.mode = this.state.section;
     this.powerT = 1;
     this.modeT = 1;
     this.expT = 1;
+    this.scrollClock = 99;
     this.dirty = true;
   }
 
@@ -147,6 +160,7 @@ export class ScreenUI {
     if (state.projectIndex !== prev.projectIndex) {
       this.projectPrev = prev.projectIndex;
       this.projectT = 0;
+      if (this.scrollClock < 99) this.scrollClock = 0;
     }
     if (state.skillCategory !== prev.skillCategory) this.skillT = 0;
     this.dirty = true;
@@ -156,6 +170,7 @@ export class ScreenUI {
     this.mode = mode;
     this.modeT = 0;
     if (mode === "experience") this.expT = 0;
+    if (mode === "projects" && this.scrollClock < 99) this.scrollClock = 0;
     this.dirty = true;
   }
 
@@ -175,6 +190,12 @@ export class ScreenUI {
     if (this.projectT < 1) {
       this.projectT = clamp(this.projectT + dt * 2.6);
       this.dirty = true;
+    }
+    if (this.mode === "projects" && this.scrollClock < 99) {
+      const before = this.scrollOffset();
+      // stays below the 99 "disabled" sentinel used for reduced motion
+      this.scrollClock = Math.min(60, this.scrollClock + dt);
+      if (this.scrollOffset() !== before) this.dirty = true;
     }
     if (this.skillT < 1) {
       this.skillT = clamp(this.skillT + dt * 4);
@@ -221,6 +242,17 @@ export class ScreenUI {
     this.images.clear();
   }
 
+  /** 0 = top of the screenshot, 1 = bottom. */
+  private scrollOffset() {
+    const t = this.scrollClock;
+    const { hold, down, pause, up } = SCROLL;
+    if (t < hold) return 0;
+    if (t < hold + down) return easeInOutCubic((t - hold) / down);
+    if (t < hold + down + pause) return 1;
+    if (t < hold + down + pause + up) return 1 - easeInOutCubic((t - hold - down - pause) / up);
+    return 0;
+  }
+
   // ---------------------------------------------------------------- drawing
 
   private font(size: number, weight = 400, mono = false) {
@@ -233,6 +265,7 @@ export class ScreenUI {
     this.sinceDraw = 0;
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
     ctx.globalAlpha = 1;
 
     if (this.mode === "off") {
@@ -259,18 +292,18 @@ export class ScreenUI {
     }
     const a = clamp(this.bootT * 3);
     ctx.globalAlpha = a;
-    this.drawLogo(W / 2 - 52, H / 2 - 120, 104);
+    this.drawLogo(W / 2 - 60, H / 2 - 150, 120);
     ctx.fillStyle = C.text;
-    ctx.font = this.font(30, 600);
+    ctx.font = this.font(40, 700);
     ctx.textAlign = "center";
     ctx.fillText("UsmanOS", W / 2, H / 2 + 26);
-    ctx.font = this.font(15, 400, true);
+    ctx.font = this.font(20, 400, true);
     ctx.fillStyle = C.dim;
-    ctx.fillText("booting workspace · loading cloud drivers", W / 2, H / 2 + 58);
-    roundRect(ctx, W / 2 - 150, H / 2 + 84, 300, 6, 3);
+    ctx.fillText("booting workspace · loading cloud drivers", W / 2, H / 2 + 66);
+    roundRect(ctx, W / 2 - 180, H / 2 + 96, 360, 8, 4);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     ctx.fill();
-    roundRect(ctx, W / 2 - 150, H / 2 + 84, 300 * easeOutCubic(clamp(this.bootT)), 6, 3);
+    roundRect(ctx, W / 2 - 180, H / 2 + 96, 360 * easeOutCubic(clamp(this.bootT)), 8, 4);
     ctx.fillStyle = C.blue;
     ctx.fill();
     ctx.textAlign = "left";
@@ -307,9 +340,12 @@ export class ScreenUI {
     ctx.restore();
   }
 
+  /** Wallpaper at full canvas resolution, drawn once. */
   private getWallpaper() {
     if (this.wallpaper) return this.wallpaper;
-    const { canvas, ctx } = createCanvas(W, H);
+    const s = this.scale;
+    const { canvas, ctx } = createCanvas(Math.round(W * s), Math.round(H * s));
+    ctx.scale(s, s);
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, "#0a1b3d");
     g.addColorStop(0.55, "#081430");
@@ -344,84 +380,102 @@ export class ScreenUI {
     return canvas;
   }
 
+  /** The soft window shadow is blurred once and reused (canvas blur is costly at this size). */
+  private getWindowShadow() {
+    if (this.windowShadow) return this.windowShadow;
+    const m = 60;
+    const k = 0.5;
+    const { canvas, ctx } = createCanvas(Math.round((WIN.w + m * 2) * k), Math.round((WIN.h + m * 2) * k));
+    ctx.scale(k, k);
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 40 * k;
+    ctx.shadowOffsetY = 18 * k;
+    roundRect(ctx, m, m, WIN.w, WIN.h, 16);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    this.windowShadow = canvas;
+    return canvas;
+  }
+
   private drawDesktop(mode: SectionId) {
     const ctx = this.ctx;
-    ctx.drawImage(this.getWallpaper(), 0, 0);
-    this.drawMenuBar(mode);
+    ctx.drawImage(this.getWallpaper(), 0, 0, W, H);
+    const fullscreen = mode === "projects";
+    if (!fullscreen) this.drawMenuBar(mode);
 
     const t = easeOutCubic(this.modeT);
-    const wx = 96;
-    const wy = 56;
-    const ww = 1088;
-    const wh = 556;
+    const rect = fullscreen ? { x: 0, y: 0, w: W, h: H } : WIN;
     ctx.save();
     ctx.globalAlpha = t;
     const s = 0.94 + 0.06 * t;
-    ctx.translate(wx + ww / 2, wy + wh / 2 + (1 - t) * 18);
+    ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2 + (1 - t) * 18);
     ctx.scale(s, s);
-    ctx.translate(-(wx + ww / 2), -(wy + wh / 2));
-    this.drawWindow(mode, wx, wy, ww, wh);
+    ctx.translate(-(rect.x + rect.w / 2), -(rect.y + rect.h / 2));
+    if (!fullscreen) ctx.drawImage(this.getWindowShadow(), rect.x - 60, rect.y - 60, rect.w + 120, rect.h + 120);
+    this.drawWindow(mode, rect.x, rect.y, rect.w, rect.h, fullscreen ? 0 : 16);
     ctx.restore();
 
-    this.drawDock(mode);
+    if (!fullscreen) this.drawDock(mode);
   }
 
   private drawMenuBar(mode: SectionId) {
     const ctx = this.ctx;
-    ctx.fillStyle = "rgba(6, 12, 26, 0.62)";
-    ctx.fillRect(0, 0, W, 32);
+    ctx.fillStyle = "rgba(6, 12, 26, 0.66)";
+    ctx.fillRect(0, 0, W, MENU_H);
     ctx.fillStyle = "#ffffff";
     // tiny cloud mark
     ctx.beginPath();
-    ctx.arc(22, 18, 5, 0, Math.PI * 2);
-    ctx.arc(29, 14, 6.5, 0, Math.PI * 2);
-    ctx.arc(36, 18, 5, 0, Math.PI * 2);
+    ctx.arc(24, 21, 6, 0, Math.PI * 2);
+    ctx.arc(32, 16.5, 7.5, 0, Math.PI * 2);
+    ctx.arc(40, 21, 6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillRect(22, 18, 14, 5);
-    ctx.font = this.font(15, 700);
-    ctx.fillText("UsmanOS", 50, 22);
-    ctx.font = this.font(15, 600);
-    ctx.fillText(APP_NAMES[mode], 132, 22);
-    ctx.font = this.font(15, 400);
-    ctx.fillStyle = "rgba(230,235,245,0.8)";
-    let x = 132 + ctx.measureText(APP_NAMES[mode]).width + 26;
+    ctx.fillRect(24, 21, 16, 6);
+    const base = 26;
+    ctx.font = this.font(18, 700);
+    ctx.fillText("UsmanOS", 56, base);
+    let x = 56 + ctx.measureText("UsmanOS").width + 22;
+    ctx.font = this.font(18, 600);
+    ctx.fillText(APP_NAMES[mode], x, base);
+    x += ctx.measureText(APP_NAMES[mode]).width + 26;
+    ctx.font = this.font(18, 400);
+    ctx.fillStyle = "rgba(230,235,245,0.82)";
     for (const item of ["File", "Edit", "View", "Window", "Help"]) {
-      ctx.fillText(item, x, 22);
-      x += ctx.measureText(item).width + 22;
+      ctx.fillText(item, x, base);
+      x += ctx.measureText(item).width + 24;
     }
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(this.clock ? `${this.clock} PKT` : "", W - 20, 22);
+    ctx.fillText(this.clock ? `${this.clock} PKT` : "", W - 22, base);
     ctx.textAlign = "left";
     // wifi + battery
-    const bx = W - 200;
+    const bx = W - 220;
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1.6;
-    roundRect(ctx, bx, 11, 24, 12, 3);
+    ctx.lineWidth = 2;
+    roundRect(ctx, bx, 12, 28, 14, 4);
     ctx.stroke();
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(bx + 3, 14, 15, 6);
-    ctx.fillRect(bx + 25, 15, 2, 4);
+    ctx.fillRect(bx + 4, 16, 17, 6);
+    ctx.fillRect(bx + 30, 16.5, 2.5, 5);
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
-      ctx.arc(bx - 26, 24, 4 + i * 4.5, Math.PI * 1.25, Math.PI * 1.75);
+      ctx.arc(bx - 30, 28, 5 + i * 5.5, Math.PI * 1.25, Math.PI * 1.75);
       ctx.stroke();
     }
   }
 
   private drawDock(active: SectionId) {
     const ctx = this.ctx;
-    const size = 50;
+    const size = 52;
     const gap = 14;
-    const pad = 12;
+    const pad = 10;
     const n = sections.length;
     const dw = n * size + (n - 1) * gap + pad * 2;
     const dx = (W - dw) / 2;
-    const dy = H - size - pad * 2 - 14;
+    const dy = H - size - pad * 2 - 12;
     roundRect(ctx, dx, dy, dw, size + pad * 2, 22);
-    ctx.fillStyle = "rgba(255,255,255,0.09)";
+    ctx.fillStyle = "rgba(255,255,255,0.1)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.strokeStyle = "rgba(255,255,255,0.16)";
     ctx.lineWidth = 1;
     ctx.stroke();
     sections.forEach((section, i) => {
@@ -434,7 +488,7 @@ export class ScreenUI {
       if (isActive) {
         ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(dx + pad + i * (size + gap) + size / 2, dy + size + pad * 2 - 6, 2.6, 0, Math.PI * 2);
+        ctx.arc(dx + pad + i * (size + gap) + size / 2, dy + size + pad * 2 - 5, 2.8, 0, Math.PI * 2);
         ctx.fill();
       }
     });
@@ -464,41 +518,34 @@ export class ScreenUI {
     ctx.restore();
   }
 
-  private drawWindow(mode: SectionId, x: number, y: number, w: number, h: number) {
+  private drawWindow(mode: SectionId, x: number, y: number, w: number, h: number, radius: number) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.55)";
-    ctx.shadowBlur = 40;
-    ctx.shadowOffsetY = 18;
-    roundRect(ctx, x, y, w, h, 16);
+    roundRect(ctx, x, y, w, h, radius);
     ctx.fillStyle = "#0b1020";
     ctx.fill();
-    ctx.restore();
-
-    ctx.save();
-    roundRect(ctx, x, y, w, h, 16);
     ctx.clip();
     // title bar
     ctx.fillStyle = "#161e30";
-    ctx.fillRect(x, y, w, 42);
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.fillRect(x, y + 42, w, 1);
+    ctx.fillRect(x, y, w, TITLE_H);
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.fillRect(x, y + TITLE_H, w, 1);
     ["#ff5f57", "#febc2e", "#28c840"].forEach((color, i) => {
       ctx.beginPath();
-      ctx.arc(x + 24 + i * 22, y + 21, 7, 0, Math.PI * 2);
+      ctx.arc(x + 28 + i * 26, y + TITLE_H / 2, 8, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
     });
-    ctx.font = this.font(15, 500);
-    ctx.fillStyle = "#aab4c8";
+    ctx.font = this.font(18, 500);
+    ctx.fillStyle = "#b4bdd0";
     ctx.textAlign = "center";
-    ctx.fillText(this.windowTitle(mode), x + w / 2, y + 26);
+    ctx.fillText(this.windowTitle(mode), x + w / 2, y + TITLE_H / 2 + 6);
     ctx.textAlign = "left";
 
     const bx = x;
-    const by = y + 43;
+    const by = y + TITLE_H + 1;
     const bw = w;
-    const bh = h - 43;
+    const bh = h - TITLE_H - 1;
     switch (mode) {
       case "home":
         this.drawTerminal(bx, by, bw, bh);
@@ -518,10 +565,12 @@ export class ScreenUI {
     }
     ctx.restore();
 
-    roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 16);
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    if (radius > 0) {
+      roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius);
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
 
   private windowTitle(mode: SectionId) {
@@ -552,14 +601,81 @@ export class ScreenUI {
     ctx.restore();
   }
 
+  /** Draws text runs left to right. A leading "✓" is drawn as a path. */
   private segs(x: number, y: number, parts: Seg[]) {
     const ctx = this.ctx;
     for (const [text, color] of parts) {
       ctx.fillStyle = color;
-      ctx.fillText(text, x, y);
-      x += ctx.measureText(text).width;
+      let rest = text;
+      if (rest.startsWith("✓")) {
+        const size = Number(/(\d+(?:\.\d+)?)px/.exec(ctx.font)?.[1] ?? 16);
+        this.check(x, y, size, color);
+        x += size * 0.82;
+        rest = rest.slice(1);
+      }
+      ctx.fillText(rest, x, y);
+      x += ctx.measureText(rest).width;
     }
     return x;
+  }
+
+  /** Check mark on the text baseline; web-font subsets often lack U+2713. */
+  private check(x: number, y: number, size: number, color: string) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 0.13;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(x + size * 0.06, y - size * 0.34);
+    ctx.lineTo(x + size * 0.27, y - size * 0.1);
+    ctx.lineTo(x + size * 0.66, y - size * 0.64);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Shortens the last segment with an ellipsis so the line fits `maxW`. */
+  private fit(parts: Seg[], maxW: number): Seg[] {
+    const ctx = this.ctx;
+    const width = (p: Seg[]) => p.reduce((sum, [text]) => sum + ctx.measureText(text).width, 0);
+    if (width(parts) <= maxW || parts.length === 0) return parts;
+    const out = parts.map((p) => [...p] as Seg);
+    const last = out[out.length - 1];
+    let text = last[0];
+    while (text.length > 1 && width(out) > maxW) {
+      text = text.slice(0, -1);
+      last[0] = `${text.trimEnd()}…`;
+    }
+    return out;
+  }
+
+  /**
+   * Splits a line that is too wide at ", " boundaries of its last segment.
+   * Continuation lines start with `prefix`.
+   */
+  private wrapSegs(parts: Seg[], maxW: number, prefix: Seg[]): Seg[][] {
+    const ctx = this.ctx;
+    const width = (p: Seg[]) => p.reduce((sum, [text]) => sum + ctx.measureText(text).width, 0);
+    if (width(parts) <= maxW) return [parts];
+    const head = parts.slice(0, -1);
+    const [text, color] = parts[parts.length - 1];
+    const words = text.split(", ");
+    const lines: Seg[][] = [];
+    let current: Seg[] = head;
+    let buf = "";
+    for (const word of words) {
+      const next = buf ? `${buf}, ${word}` : word;
+      if (buf && width([...current, [`${next}`, color]]) > maxW) {
+        lines.push([...current, [`${buf},`, color]]);
+        current = prefix;
+        buf = word;
+      } else {
+        buf = next;
+      }
+    }
+    lines.push([...current, [buf, color]]);
+    return lines;
   }
 
   private prompt(cwd = "~", branch?: string): Seg[] {
@@ -576,10 +692,10 @@ export class ScreenUI {
     const ctx = this.ctx;
     ctx.fillStyle = "#0a0f1c";
     ctx.fillRect(x, y, w, h);
-    const left = x + 30;
-    let ly = y + 44;
-    const lh = 32;
-    ctx.font = this.font(19, 400, true);
+    const left = x + 34;
+    let ly = y + 54;
+    const lh = 40;
+    ctx.font = this.font(24, 400, true);
     this.segs(left, ly, [[`Last login: ${this.lastLogin || "today"} on ttys001`, C.faint]]);
     ly += lh;
     this.segs(left, ly, [...this.prompt(), ["whoami", C.text]]);
@@ -588,14 +704,14 @@ export class ScreenUI {
     ly += lh;
     this.segs(left, ly, [...this.prompt(), ["cat stack.txt", C.text]]);
     ly += lh;
-    this.segs(left, ly, [["Next.js · React · Node.js · AWS · GCP · Cloudflare · Tailwind", C.cyan]]);
+    this.segs(left, ly, this.fit([["Next.js · React · Node.js · AWS · GCP · Cloudflare · Tailwind", C.cyan]], w - 68));
     ly += lh;
     this.segs(left, ly, [...this.prompt(), ["echo $MOOD", C.text]]);
-    ly += lh + 34;
+    ly += lh + 46;
 
-    ctx.font = this.font(50, 700, true);
+    ctx.font = this.font(60, 700, true);
     const typed = this.state.typed || "";
-    const g = ctx.createLinearGradient(left, 0, left + 760, 0);
+    const g = ctx.createLinearGradient(left, 0, left + 900, 0);
     g.addColorStop(0, "#5ab8ff");
     g.addColorStop(1, "#a78bfa");
     ctx.fillStyle = g;
@@ -603,11 +719,11 @@ export class ScreenUI {
     if (this.caretOn) {
       const cw = ctx.measureText(`> ${typed}`).width;
       ctx.fillStyle = "#5ab8ff";
-      ctx.fillRect(left + cw + 6, ly - 40, 24, 46);
+      ctx.fillRect(left + cw + 8, ly - 48, 28, 56);
     }
 
-    ctx.font = this.font(17, 400, true);
-    this.segs(left, y + h - 34, [
+    ctx.font = this.font(20, 400, true);
+    this.segs(left, y + h - 30, [
       ["✓ ", C.green],
       ["build passing   ", C.dim],
       ["✓ ", C.green],
@@ -619,38 +735,40 @@ export class ScreenUI {
 
   private drawEditor(x: number, y: number, w: number, h: number) {
     const ctx = this.ctx;
-    const side = 250;
+    const side = 270;
+    const statusH = 36;
     const active = skillCategories.find((c) => c.key === this.state.skillCategory) ?? skillCategories[0];
 
     ctx.fillStyle = "#0d1322";
     ctx.fillRect(x, y, side, h);
-    ctx.font = this.font(13, 600);
+    ctx.font = this.font(15, 600);
     ctx.fillStyle = C.faint;
-    ctx.fillText("EXPLORER", x + 22, y + 32);
-    ctx.font = this.font(16, 500);
+    ctx.fillText("EXPLORER", x + 24, y + 36);
+    ctx.font = this.font(19, 500);
     ctx.fillStyle = C.dim;
     ctx.beginPath();
-    ctx.moveTo(x + 20, y + 53);
-    ctx.lineTo(x + 30, y + 53);
-    ctx.lineTo(x + 25, y + 60);
+    ctx.moveTo(x + 22, y + 62);
+    ctx.lineTo(x + 34, y + 62);
+    ctx.lineTo(x + 28, y + 70);
     ctx.closePath();
     ctx.fill();
-    ctx.fillText("skills", x + 38, y + 64);
+    ctx.fillText("skills", x + 44, y + 72);
     skillCategories.forEach((cat, i) => {
-      const iy = y + 82 + i * 38;
-      if (cat.key === active.key) {
-        ctx.fillStyle = "rgba(90,184,255,0.12)";
-        ctx.fillRect(x, iy, side, 34);
+      const iy = y + 90 + i * 46;
+      const on = cat.key === active.key;
+      if (on) {
+        ctx.fillStyle = "rgba(90,184,255,0.13)";
+        ctx.fillRect(x, iy, side, 42);
         ctx.fillStyle = cat.accent;
-        ctx.fillRect(x, iy, 3, 34);
+        ctx.fillRect(x, iy, 4, 42);
       }
       ctx.beginPath();
-      ctx.arc(x + 44, iy + 17, 5, 0, Math.PI * 2);
+      ctx.arc(x + 48, iy + 21, 6, 0, Math.PI * 2);
       ctx.fillStyle = cat.accent;
       ctx.fill();
-      ctx.font = this.font(16, cat.key === active.key ? 600 : 400, true);
-      ctx.fillStyle = cat.key === active.key ? "#ffffff" : C.dim;
-      ctx.fillText(cat.file, x + 60, iy + 23);
+      ctx.font = this.font(19, on ? 600 : 400, true);
+      ctx.fillStyle = on ? "#ffffff" : C.dim;
+      ctx.fillText(cat.file, x + 66, iy + 28);
     });
 
     const ex = x + side;
@@ -659,30 +777,19 @@ export class ScreenUI {
     ctx.fillRect(ex, y, ew, h);
     // tab
     ctx.fillStyle = "#121a2c";
-    ctx.fillRect(ex, y, ew, 40);
+    ctx.fillRect(ex, y, ew, 46);
     ctx.fillStyle = "#0a0f1c";
-    ctx.fillRect(ex, y, 200, 40);
+    ctx.fillRect(ex, y, 230, 46);
     ctx.fillStyle = active.accent;
-    ctx.fillRect(ex, y, 200, 2);
-    ctx.font = this.font(15, 500, true);
+    ctx.fillRect(ex, y, 230, 3);
+    ctx.font = this.font(18, 500, true);
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(active.file, ex + 20, y + 26);
+    ctx.fillText(active.file, ex + 22, y + 30);
     ctx.fillStyle = C.faint;
-    ctx.fillText("×", ex + 176, y + 26);
+    ctx.fillText("×", ex + 202, y + 30);
 
     const code: Seg[][] = [
       [[`// ${active.label}`, C.comment]],
-      [
-        ["import ", C.purple],
-        ["type ", C.purple],
-        ["{ ", C.text],
-        ["Skill", C.teal],
-        [" } ", C.text],
-        ["from ", C.purple],
-        ['"./usman"', C.orange],
-        [";", C.text],
-      ],
-      [],
       [
         ["export const ", C.purple],
         [active.key, "#9cdcfe"],
@@ -700,38 +807,37 @@ export class ScreenUI {
         return line;
       }),
       [["];", C.text]],
-      [],
-      [
-        ["export default ", C.purple],
-        [active.key, "#9cdcfe"],
-        [";", C.text],
-      ],
     ];
 
     const fade = easeOutCubic(this.skillT);
     ctx.save();
     ctx.globalAlpha = fade;
-    ctx.font = this.font(18, 400, true);
-    const lh = 30;
+    ctx.font = this.font(22, 400, true);
+    const lh = 36;
+    const codeX = ex + 78;
     code.forEach((line, i) => {
-      const ly = y + 82 + i * lh + (1 - fade) * 10;
+      const ly = y + 92 + i * lh + (1 - fade) * 12;
       ctx.fillStyle = C.faint;
       ctx.textAlign = "right";
-      ctx.fillText(String(i + 1), ex + 46, ly);
+      ctx.fillText(String(i + 1), ex + 52, ly);
       ctx.textAlign = "left";
-      this.segs(ex + 70, ly, line);
+      this.segs(codeX, ly, this.fit(line, x + w - codeX - 24));
     });
     ctx.restore();
 
     // status bar
     ctx.fillStyle = "#0788ff";
-    ctx.fillRect(x, y + h - 30, w, 30);
-    ctx.font = this.font(14, 500);
+    ctx.fillRect(x, y + h - statusH, w, statusH);
+    ctx.font = this.font(17, 500);
     ctx.fillStyle = "#ffffff";
-    this.glyph("mdi:source-branch", x + 12, y + h - 25, 18, "#ffffff");
-    ctx.fillText(`main    ✓ 0 problems    ${active.skills.length} skills`, x + 34, y + h - 10);
+    this.glyph("mdi:source-branch", x + 14, y + h - statusH + 7, 22, "#ffffff");
+    this.segs(x + 42, y + h - 12, [
+      ["main    ", "#ffffff"],
+      ["✓ ", "#ffffff"],
+      [`0 problems    ${active.skills.length} skills`, "#ffffff"],
+    ]);
     ctx.textAlign = "right";
-    ctx.fillText("TypeScript   UTF-8   LF", x + w - 16, y + h - 10);
+    ctx.fillText("TypeScript   UTF-8   LF", x + w - 18, y + h - 12);
     ctx.textAlign = "left";
   }
 
@@ -739,65 +845,82 @@ export class ScreenUI {
     const ctx = this.ctx;
     const index = clamp(this.state.projectIndex, 0, projects.length - 1);
     const project = projects[index];
+    const tabH = 52;
+    const barH = 56;
 
     ctx.fillStyle = "#121a2c";
-    ctx.fillRect(x, y, w, 92);
+    ctx.fillRect(x, y, w, tabH + barH);
     // tab
-    roundRect(ctx, x + 14, y + 8, 280, 38, 10);
+    roundRect(ctx, x + 16, y + 9, 340, tabH - 14, 11);
     ctx.fillStyle = "#1e2840";
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x + 36, y + 27, 7, 0, Math.PI * 2);
+    ctx.arc(x + 40, y + 9 + (tabH - 14) / 2, 8, 0, Math.PI * 2);
     ctx.fillStyle = "#f59e0b";
     ctx.fill();
-    ctx.font = this.font(15, 500);
+    ctx.font = this.font(19, 500);
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(project.title, x + 52, y + 32);
-    this.glyph("mdi:plus", x + 300, y + 16, 22, C.faint);
+    ctx.fillText(this.fit([[project.title, "#fff"]], 270)[0][0], x + 58, y + 34);
+    this.glyph("mdi:plus", x + 368, y + 14, 26, C.faint);
     // toolbar
-    this.glyph("mdi:arrow-left", x + 18, y + 59, 22, C.dim);
-    this.glyph("mdi:arrow-right", x + 50, y + 59, 22, C.faint);
-    this.glyph("mdi:refresh", x + 82, y + 59, 22, C.dim);
-    roundRect(ctx, x + 120, y + 54, w - 200, 32, 16);
+    const ty = y + tabH;
+    this.glyph("mdi:arrow-left", x + 20, ty + 15, 26, C.dim);
+    this.glyph("mdi:arrow-right", x + 58, ty + 15, 26, C.faint);
+    this.glyph("mdi:refresh", x + 96, ty + 15, 26, C.dim);
+    roundRect(ctx, x + 140, ty + 9, w - 230, barH - 18, 19);
     ctx.fillStyle = "#0a0f1c";
     ctx.fill();
-    this.glyph("mdi:lock", x + 134, y + 61, 18, C.green);
+    this.glyph("mdi:lock", x + 156, ty + 17, 22, C.green);
     ctx.fillStyle = C.text;
-    ctx.font = this.font(15, 400, true);
-    ctx.fillText(this.projectUrl(index), x + 162, y + 75);
-    this.glyph("mdi:dots-horizontal", x + w - 62, y + 58, 24, C.dim);
+    ctx.font = this.font(19, 400, true);
+    ctx.fillText(this.projectUrl(index), x + 188, ty + 35);
+    this.glyph("mdi:dots-horizontal", x + w - 70, ty + 14, 28, C.dim);
 
     const vx = x;
-    const vy = y + 92;
+    const vy = y + tabH + barH;
     const vw = w;
-    const vh = h - 92;
+    const vh = h - tabH - barH;
     ctx.fillStyle = "#0a0f1c";
     ctx.fillRect(vx, vy, vw, vh);
 
     const t = easeOutCubic(this.projectT);
     const prev = this.projectPrev;
+    const scroll = this.scrollOffset();
     ctx.save();
     ctx.beginPath();
     ctx.rect(vx, vy, vw, vh);
     ctx.clip();
     if (prev >= 0 && prev !== index && t < 1) {
       ctx.globalAlpha = 1 - t;
-      this.drawShot(prev, vx - t * vw * 0.25, vy, vw, vh);
+      this.drawShot(prev, vx - t * vw * 0.25, vy, vw, vh, 0);
     }
     ctx.globalAlpha = prev >= 0 && prev !== index ? t : 1;
-    this.drawShot(index, vx + (1 - t) * vw * 0.35, vy, vw, vh);
+    this.drawShot(index, vx + (1 - t) * vw * 0.35, vy, vw, vh, scroll);
     ctx.restore();
     ctx.globalAlpha = 1;
 
+    // scrollbar
+    const img = this.images.get(project.image);
+    if (img) {
+      const contentH = (img.height * vw) / img.width;
+      if (contentH > vh) {
+        const thumbH = Math.max(60, (vh / contentH) * (vh - 16));
+        const thumbY = vy + 8 + scroll * (vh - 16 - thumbH);
+        roundRect(ctx, vx + vw - 14, thumbY, 7, thumbH, 4);
+        ctx.fillStyle = "rgba(255,255,255,0.45)";
+        ctx.fill();
+      }
+    }
+
     // caption chip
-    ctx.font = this.font(15, 600);
+    ctx.font = this.font(19, 600);
     const label = `${String(index + 1).padStart(2, "0")} / ${String(projects.length).padStart(2, "0")}   ${project.subtitle}`;
-    const lw = ctx.measureText(label).width + 32;
-    roundRect(ctx, vx + 20, vy + vh - 54, lw, 36, 18);
-    ctx.fillStyle = "rgba(6,10,20,0.78)";
+    const lw = ctx.measureText(label).width + 36;
+    roundRect(ctx, vx + 22, vy + vh - 60, lw, 42, 21);
+    ctx.fillStyle = "rgba(6,10,20,0.82)";
     ctx.fill();
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(label, vx + 36, vy + vh - 30);
+    ctx.fillText(label, vx + 40, vy + vh - 32);
   }
 
   private projectUrl(index: number) {
@@ -807,35 +930,38 @@ export class ScreenUI {
     return `${p.slug}.app — private build`;
   }
 
-  private drawShot(index: number, x: number, y: number, w: number, h: number) {
+  /** Screenshot fitted to the viewport width; `scroll` pans from the top (0) to the bottom (1). */
+  private drawShot(index: number, x: number, y: number, w: number, h: number, scroll: number) {
     const ctx = this.ctx;
     const img = this.images.get(projects[index].image);
     if (!img) {
       ctx.fillStyle = "#101828";
       ctx.fillRect(x, y, w, h);
       ctx.fillStyle = "#1a2438";
-      roundRect(ctx, x + 60, y + 60, w * 0.5, 34, 8);
+      roundRect(ctx, x + 70, y + 70, w * 0.5, 40, 10);
       ctx.fill();
-      roundRect(ctx, x + 60, y + 112, w * 0.7, 18, 6);
+      roundRect(ctx, x + 70, y + 132, w * 0.7, 22, 8);
       ctx.fill();
-      roundRect(ctx, x + 60, y + 144, w * 0.62, 18, 6);
+      roundRect(ctx, x + 70, y + 170, w * 0.62, 22, 8);
       ctx.fill();
-      ctx.font = this.font(16, 500, true);
+      ctx.font = this.font(20, 500, true);
       ctx.fillStyle = C.faint;
-      ctx.fillText("loading preview…", x + 60, y + 210);
+      ctx.fillText("loading preview…", x + 70, y + 250);
       return;
     }
     const scale = Math.max(w / img.width, h / img.height);
     const dw = img.width * scale;
     const dh = img.height * scale;
-    ctx.drawImage(img, x + (w - dw) / 2, y, dw, dh);
+    ctx.drawImage(img, x + (w - dw) / 2, y - (dh - h) * scroll, dw, dh);
   }
 
   private drawGitLog(x: number, y: number, w: number, h: number) {
     const ctx = this.ctx;
     ctx.fillStyle = "#0a0f1c";
     ctx.fillRect(x, y, w, h);
-    const lines: Seg[][] = [[...this.prompt("~/career", "main"), ["git log --graph --decorate", C.text]], []];
+    ctx.font = this.font(21, 400, true);
+    const maxW = w - 64;
+    const lines: Seg[][] = [[...this.prompt("~/career", "main"), ["git log --graph --decorate", C.text]]];
     roles.forEach((role, i) => {
       const last = i === roles.length - 1;
       const head: Seg[] = [
@@ -845,25 +971,23 @@ export class ScreenUI {
       if (i === 0) head.push(["(", C.yellow], ["HEAD -> ", C.cyan], ["main", C.green], [", ", C.yellow]);
       else head.push(["(", C.yellow]);
       head.push([`tag: ${role.tag}`, C.yellow], [") ", C.yellow], [`${role.title} @ ${role.company}`, "#ffffff"]);
-      lines.push(head);
+      lines.push(this.fit(head, maxW));
       const bar: Seg = [last ? "  " : "│ ", C.purple];
       lines.push([bar, [`Date: ${role.period} · ${role.jobType} · ${role.workMode}`, C.dim]]);
-      lines.push([bar, [i === 0 ? "feat(seo): " : i === roles.length - 1 ? "init: " : "feat: ", C.purple], [role.highlights.join(", "), "#d1d8e6"]]);
-      if (!last) lines.push([bar]);
+      const kind = i === 0 ? "feat(seo): " : last ? "init: " : "feat: ";
+      lines.push(...this.wrapSegs([bar, [kind, C.purple], [role.highlights.join(", "), "#d1d8e6"]], maxW, [bar, [" ".repeat(kind.length), C.purple]]));
     });
-    lines.push([]);
     lines.push([...this.prompt("~/career", "main")]);
 
-    ctx.font = this.font(18, 400, true);
-    const lh = 31;
+    const lh = 35;
     const visible = Math.min(lines.length, Math.floor(this.expT * lines.length) + 1);
-    let lastX = x + 30;
+    let lastX = x + 32;
     for (let i = 0; i < visible; i++) {
-      lastX = this.segs(x + 30, y + 46 + i * lh, lines[i]);
+      lastX = this.segs(x + 32, y + 50 + i * lh, lines[i]);
     }
     if (this.caretOn) {
       ctx.fillStyle = C.text;
-      ctx.fillRect(lastX + 2, y + 46 + (visible - 1) * lh - 18, 11, 22);
+      ctx.fillRect(lastX + 3, y + 50 + (visible - 1) * lh - 21, 13, 26);
     }
   }
 
@@ -873,8 +997,8 @@ export class ScreenUI {
     const focus = this.state.contactField;
     ctx.fillStyle = "#0e1526";
     ctx.fillRect(x, y, w, h);
-    const left = x + 34;
-    const rowH = 58;
+    const left = x + 36;
+    const rowH = 64;
     const rows: Array<{ label: string; value: string; placeholder: string; field: string | null }> = [
       { label: "To:", value: profile.email, placeholder: "", field: null },
       {
@@ -887,87 +1011,78 @@ export class ScreenUI {
     ];
     rows.forEach((row, i) => {
       const ry = y + i * rowH;
-      ctx.font = this.font(18, 500);
+      ctx.font = this.font(21, 500);
       ctx.fillStyle = C.dim;
-      ctx.fillText(row.label, left, ry + 37);
-      const vx = left + 96;
+      ctx.fillText(row.label, left, ry + 41);
+      const vx = left + 112;
       if (i === 0) {
-        ctx.font = this.font(17, 500);
+        ctx.font = this.font(20, 500);
         const tw = ctx.measureText(row.value).width;
-        roundRect(ctx, vx - 4, ry + 14, tw + 26, 32, 16);
-        ctx.fillStyle = "rgba(7,136,255,0.22)";
+        roundRect(ctx, vx - 4, ry + 14, tw + 30, 38, 19);
+        ctx.fillStyle = "rgba(7,136,255,0.24)";
         ctx.fill();
-        ctx.fillStyle = "#9fd0ff";
-        ctx.fillText(row.value, vx + 9, ry + 36);
+        ctx.fillStyle = "#a9d6ff";
+        ctx.fillText(row.value, vx + 11, ry + 40);
       } else {
-        ctx.font = this.font(19, 400);
+        ctx.font = this.font(22, 400);
         ctx.fillStyle = row.value ? C.text : C.faint;
-        const text = row.value || row.placeholder;
-        ctx.fillText(text, vx, ry + 37);
+        const text = this.fit([[row.value || row.placeholder, "#fff"]], w - (vx - x) - 40)[0][0];
+        ctx.fillText(text, vx, ry + 41);
         const isFocus = focus !== null && (row.field === focus || (i === 1 && (focus === "name" || focus === "email")));
         if (isFocus && this.caretOn) {
-          const cw = row.value ? ctx.measureText(row.value).width : 0;
+          const cw = row.value ? ctx.measureText(text).width : 0;
           ctx.fillStyle = C.blue;
-          ctx.fillRect(vx + cw + 2, ry + 18, 2, 26);
+          ctx.fillRect(vx + cw + 2, ry + 18, 2.5, 30);
         }
       }
-      ctx.fillStyle = "rgba(255,255,255,0.07)";
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
       ctx.fillRect(x, ry + rowH - 1, w, 1);
     });
 
     // message body
-    const by = y + rows.length * rowH + 40;
-    ctx.font = this.font(21, 400);
-    const maxW = w - 68;
+    const by = y + rows.length * rowH + 48;
+    ctx.font = this.font(24, 400);
+    const maxW = w - 72;
     const msg = contact.message;
     const lines = msg ? this.wrap(msg, maxW) : ["Write your message…"];
-    const maxLines = 7;
+    const lineH = 38;
+    const maxLines = 5;
     const shown = lines.slice(-maxLines);
     ctx.fillStyle = msg ? C.text : C.faint;
-    shown.forEach((line, i) => ctx.fillText(line, left, by + i * 34));
+    shown.forEach((line, i) => ctx.fillText(line, left, by + i * lineH));
     if (focus === "message" && this.caretOn) {
       const lastLine = msg ? shown[shown.length - 1] : "";
       const cw = ctx.measureText(lastLine).width;
       ctx.fillStyle = C.blue;
-      ctx.fillRect(left + cw + 2, by + (shown.length - 1) * 34 - 22, 2, 28);
+      ctx.fillRect(left + cw + 2, by + (shown.length - 1) * lineH - 25, 2.5, 32);
     }
 
     // send button
     const ready = Boolean(contact.name && contact.email && contact.subject && contact.message);
     const label = contactStatus === "sending" ? "Sending…" : "Send";
-    ctx.font = this.font(18, 600);
-    const bw = ctx.measureText(label).width + 76;
-    const bx = x + w - bw - 30;
-    const bY = y + h - 66;
-    roundRect(ctx, bx, bY, bw, 44, 22);
+    ctx.font = this.font(21, 600);
+    const bw = ctx.measureText(label).width + 86;
+    const bx = x + w - bw - 32;
+    const bY = y + h - 72;
+    roundRect(ctx, bx, bY, bw, 50, 25);
     ctx.fillStyle = ready || contactStatus === "sending" ? "#0788ff" : "#24304a";
     ctx.fill();
-    ctx.save();
-    ctx.translate(bx + 22, bY + 11);
-    ctx.scale(22 / 24, 22 / 24);
+    this.glyph("mdi:send", bx + 24, bY + 13, 24, "#ffffff");
     ctx.fillStyle = "#ffffff";
-    ctx.fill(iconPath("mdi:send"));
-    ctx.restore();
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(label, bx + 54, bY + 29);
+    ctx.fillText(label, bx + 60, bY + 33);
 
     if (contactStatus === "sent" || contactStatus === "error") {
-      ctx.fillStyle = "rgba(8, 12, 24, 0.82)";
+      ctx.fillStyle = "rgba(8, 12, 24, 0.84)";
       ctx.fillRect(x, y, w, h);
       const ok = contactStatus === "sent";
-      ctx.save();
-      ctx.translate(x + w / 2 - 48, y + h / 2 - 120);
-      ctx.scale(96 / 24, 96 / 24);
-      ctx.fillStyle = ok ? C.green : "#f87171";
-      ctx.fill(iconPath(ok ? "mdi:check-circle-outline" : "mdi:alert-circle-outline"));
-      ctx.restore();
+      this.glyph(ok ? "mdi:check-circle-outline" : "mdi:alert-circle-outline", x + w / 2 - 56, y + h / 2 - 140, 112, ok ? C.green : "#f87171");
       ctx.textAlign = "center";
-      ctx.font = this.font(34, 700);
+      ctx.font = this.font(40, 700);
       ctx.fillStyle = "#ffffff";
       ctx.fillText(ok ? "Message sent!" : "Couldn’t send that one", x + w / 2, y + h / 2 + 30);
-      ctx.font = this.font(19, 400);
+      ctx.font = this.font(22, 400);
       ctx.fillStyle = C.dim;
-      ctx.fillText(ok ? "Thanks for reaching out. I’ll get back to you soon." : `Email me directly at ${profile.email}`, x + w / 2, y + h / 2 + 70);
+      ctx.fillText(ok ? "Thanks for reaching out. I’ll get back to you soon." : `Email me directly at ${profile.email}`, x + w / 2, y + h / 2 + 74);
       ctx.textAlign = "left";
     }
   }
