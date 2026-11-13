@@ -15,7 +15,7 @@ import { clamp, mulberry32 } from "../core/math";
 import { createCanvas, loadImage, roundRect, svgDataUrl } from "../core/textures";
 
 /**
- * Every skill becomes a floating "app icon" orbiting the room. The icons of
+ * Every skill becomes a floating "app icon" circling inside the room. The icons of
  * the selected category leave the orbit and line up in front of the camera.
  * All icons share one atlas texture and render in a single instanced draw
  * call; orbit, formation and highlight run entirely in the vertex shader.
@@ -147,8 +147,9 @@ export async function createSkillsRing(maxAnisotropy: number) {
   const slots = new Float32Array(skills.length * 3);
   skills.forEach(({ ci, si, size }, i) => {
     orbit[i * 4] = (i / skills.length) * Math.PI * 2;
-    orbit[i * 4 + 1] = 4.2 + (i % 2) * 0.45;
-    orbit[i * 4 + 2] = 1.4 + Math.sin(i * 1.7) * 0.5;
+    // a ring under the ceiling, inside the walls and above the furniture
+    orbit[i * 4 + 1] = 1.55 + (i % 2) * 0.3;
+    orbit[i * 4 + 2] = 2.25 + Math.sin(i * 1.7) * 0.28;
     orbit[i * 4 + 3] = rand();
     cells[i * 2] = ((i % COLS) * CELL) / canvas.width;
     cells[i * 2 + 1] = (Math.floor(i / COLS) * CELL) / canvas.height;
@@ -169,7 +170,7 @@ export async function createSkillsRing(maxAnisotropy: number) {
     uSwitch: { value: 1 },
     uReveal: { value: 0 },
     uCellSize: { value: [CELL / canvas.width, CELL / canvas.height] },
-    uSize: { value: 0.5 },
+    uSize: { value: 0.24 },
     uFormCenter: { value: new Vector3() },
     uFormRight: { value: new Vector3(1, 0, 0) },
     uFormSpacing: { value: 0.6 },

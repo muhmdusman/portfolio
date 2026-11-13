@@ -1,12 +1,12 @@
 # Muhammad Usman | 3D Portfolio
 
-An interactive portfolio built with **Next.js 16**, **React 19** and **Three.js**. The page is a normal, server-rendered website (fast, crawlable, accessible). Behind it, a hand-modelled 3D room floats above the clouds, and the camera flies through it as you scroll.
+An interactive portfolio built with **Next.js 16**, **React 19** and **Three.js**. The page is a normal, server-rendered website (fast, crawlable, accessible). Behind it is a hand-modelled 3D room: the camera moves through it as you scroll, and you can drag to look around it in any direction.
 
 Content comes from [muhmdusman/React-js-Portfolio](https://github.com/muhmdusman/React-js-Portfolio). The 3D direction takes inspiration from [david-hckh.com](https://david-hckh.com/); no code or assets were copied from it.
 
 ## What's in it
 
-- **A procedural 3D room.** The desk, a wide 1.44 m monitor, a mechanical keyboard, mouse, lamp, coffee mug, RGB PC tower, office chair, window, shelf with a rubber duck, a framed photo, two quote posters, a neon `</>` sign, a plant and soft clouds are all built from Three.js primitives. There are no model files to download.
+- **A procedural 3D room.** A closed room with four walls and a ceiling. The desk, a wide 1.44 m monitor, a mechanical keyboard, mouse, lamp, coffee mug, RGB PC tower, office chair, window, shelf with a rubber duck, a framed photo, two quote posters, a neon `</>` sign and a plant face the default view. Behind it are a door, a wall clock that shows the time in Pakistan, a sofa, a bookcase and a ring light on the ceiling. Everything is built from Three.js primitives; there are no model files to download.
 - **Two motto posters.** "Be what you want to be" (a synthwave sunset) and "Hardwork · Faith · Discipline" (a Swiss-style print) hang on the back wall under brass picture lights. Both are drawn on a canvas at 2× resolution, so the type stays sharp up close.
 - **A computer that mirrors the page.** The monitor runs "UsmanOS", a desktop drawn into a 2048 × 1152 canvas texture (1536 × 864 on phones). Each section opens a different app on it:
   - Home: a terminal that types the same phrases as the hero typewriter.
@@ -17,6 +17,7 @@ Content comes from [muhmdusman/React-js-Portfolio](https://github.com/muhmdusman
 - **A keyboard that types along.** It's a 75% layout with 82 sculpted keycaps (each row has its own height and tilt, and every cap has a dished top), printed legends, a volume knob, an aluminium case, an RGB backlight and a coiled cable. Every character typed by the hero typewriter or in the contact form presses the matching key, and the pressed key lights up. All keycaps are one instanced mesh with the legends inked in the shader, so this is a single draw call.
 - **Skills orbiting the room.** Every skill is a floating app icon. When you pick a category, its icons leave the orbit and line up in front of the camera. This is one instanced draw call with the motion done in the vertex shader.
 - **A scroll-driven camera.** Each section has its own camera shot, with separate shots for landscape and portrait screens. The camera eases between them as you scroll and adds a little pointer parallax. On wide screens the shots are fitted to the space right of the text column, so the monitor fills it at any window size, and the chair rolls aside while the camera is at the desk.
+- **Drag to look around.** Press anywhere outside the text panels and drag (or swipe sideways on a phone) to turn the camera around the room, up to the ceiling and down to the floor. The camera stays inside the walls and widens its lens as it turns away from the shot. Scrolling eases it back to the section's shot.
 - **A macOS-style dock as the main menu.** Icons magnify under the cursor and bounce when clicked. A dot marks the section you're in, and social links sit after the divider.
 - **Easter eggs.** Click the lamp, the PC tower (it cycles RGB modes, and the keyboard backlight follows), the rubber duck, the plant, the mug or a poster. Clicking the monitor jumps to Projects.
 
@@ -30,7 +31,7 @@ Content comes from [muhmdusman/React-js-Portfolio](https://github.com/muhmdusman
 - The monitor texture is re-uploaded only when its content changes, at most 30 times per second.
 - Images were converted to WebP at quality 0.92 from the original files: about 550 KB total for the nine project screenshots, down from about 2.9 MB, and 146 KB for the profile photo, down from 994 KB. Pages use `next/image`, and the screenshots for the 3D monitor are lazy-loaded at idle time and drawn with high-quality smoothing.
 - Scroll reveals use CSS scroll-driven animations, so no JavaScript runs for them, and content stays visible in browsers without support.
-- `prefers-reduced-motion` is respected: no intro flight, idle animation or parallax.
+- `prefers-reduced-motion` is respected: no intro flight, idle animation or parallax, and dragging has no momentum.
 - Without WebGL, the site shows a pre-rendered frame of the room (`public/images/room-fallback.webp`).
 
 ## SEO and accessibility
@@ -53,7 +54,7 @@ content/portfolio.ts all copy and data (edit this to update the site)
 lib/                 shared store (UI <-> 3D), icons, site config
 three/
   World.ts           renderer, lights, loop, adaptive quality, hotspots, disposal
-  CameraRig.ts       scroll-driven camera shots, parallax, intro flight
+  CameraRig.ts       scroll-driven camera shots, drag to look around, parallax, intro
   objects/           Room, Posters, Computer (desk/monitor/PC), Keyboard, ScreenUI, SkillsRing, Atmosphere
   core/              materials, procedural textures, math helpers
 styles/              chrome.css (scene, top bar, dock), sections.css

@@ -168,31 +168,6 @@ export function windowSkyTexture(): Texture {
   return toTexture(canvas);
 }
 
-export function moonTexture(): Texture {
-  const size = 256;
-  const { canvas, ctx } = createScaledCanvas(size, size);
-  const c = size / 2;
-  const halo = ctx.createRadialGradient(c, c, 0, c, c, c);
-  halo.addColorStop(0, "rgba(255,248,225,1)");
-  halo.addColorStop(0.16, "rgba(255,244,214,1)");
-  halo.addColorStop(0.2, "rgba(190,210,255,0.35)");
-  halo.addColorStop(0.5, "rgba(120,160,255,0.08)");
-  halo.addColorStop(1, "rgba(120,160,255,0)");
-  ctx.fillStyle = halo;
-  ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = "rgba(220, 205, 170, 0.35)";
-  for (const [x, y, r] of [
-    [c - 8, c - 6, 6],
-    [c + 9, c + 4, 4],
-    [c - 2, c + 11, 3],
-  ]) {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  return toTexture(canvas);
-}
-
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

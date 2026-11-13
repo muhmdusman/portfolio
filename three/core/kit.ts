@@ -2,7 +2,6 @@ import {
   AdditiveBlending,
   BoxGeometry,
   type BufferGeometry,
-  Color,
   Group,
   type Material,
   Mesh,
@@ -25,7 +24,6 @@ export const palette = {
   warm: "#ffb36b",
   cream: "#ece6da",
   wall: "#1a2946",
-  wallEdge: "#2f4a7c",
 };
 
 export type Materials = ReturnType<typeof createMaterials>;
@@ -39,7 +37,6 @@ export function createMaterials() {
 
   return {
     wall: std(palette.wall, 0.95),
-    wallEdge: std(palette.wallEdge, 0.85),
     floor: std("#ffffff", 0.82, 0, { map: floorMap }),
     trim: std("#2a426e", 0.8),
     wood: std("#a86f45", 0.62),
@@ -66,7 +63,6 @@ export function createMaterials() {
     neon: new MeshBasicMaterial({ color: palette.brandSoft, toneMapped: false }),
     bulb: new MeshBasicMaterial({ color: "#ffe2b8", toneMapped: false }),
     led: new MeshBasicMaterial({ color: "#5cff9d", toneMapped: false }),
-    cloud: std("#5d6f98", 1, 0, { emissive: new Color("#1a2748"), emissiveIntensity: 0.75 }),
   };
 }
 

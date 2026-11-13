@@ -1,8 +1,9 @@
 import {
   CapsuleGeometry,
+  Color,
   CylinderGeometry,
+  Float32BufferAttribute,
   type Group,
-  type Material,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
@@ -24,11 +25,16 @@ import { mulberry32 } from "../core/math";
 import { createScaledCanvas, rugTexture, textureQuality, toTexture, windowSkyTexture } from "../core/textures";
 
 /**
- * The cut-away room: floor slab, two walls, window, wall decor, a corner
- * plant, a rug and the office chair. Everything is built from primitives.
+ * The closed room: floor, four walls and a ceiling, a window, wall decor, a
+ * corner plant, a rug, the office chair, and on the walls behind the default
+ * view a door, a clock, a sofa and a bookcase. Everything is built from primitives.
  */
 
-export const ROOM = { minX: -2.58, maxX: 2.5, minZ: -2.58, maxZ: 2.5, inner: -2.4, height: 3.2 };
+/**
+ * Interior of the room in metres. The inner wall faces sit at x, z = ±half,
+ * the floor at y = 0 and the ceiling at y = height.
+ */
+export const ROOM = { half: 2.4, height: 3.2, wall: 0.18 };
 
 /** Where the office chair stands: at the desk, or rolled aside for the desk close-ups. */
 export const CHAIR_POSES = {
@@ -45,6 +51,8 @@ export interface RoomParts {
   plant: Group;
   neonLight: PointLight | null;
   neonMaterial: MeshBasicMaterial;
+  /** Moves the clock hands; cheap enough to call every frame. */
+  update(): void;
   dispose(): void;
 }
 
@@ -95,27 +103,273 @@ function stickyNotesTexture() {
   return toTexture(canvas);
 }
 
-export function createRoom(mats: Materials, opts: { lights: boolean; photo: string }): RoomParts {
+/** Merges boxes into one mesh, each tinted through a vertex color (one draw call). */
+function tintedBoxes(items: Array<{ size: [number, number, number]; pos: [number, number, number]; rotZ?: number; color: string }>) {
+  const color = new Color();
+  const parts = items.map(({ size, pos, rotZ = 0, color: hex }) => {
+    const g = new BoxGeometry(...size);
+    if (rotZ) g.rotateZ(rotZ);
+    g.translate(...pos);
+    color.set(hex);
+    const count = g.getAttribute("position").count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) color.toArray(colors, i * 3);
+    g.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    return g;
+  });
+  const merged = mergeGeometries(parts);
+  parts.forEach((g) => g.dispose());
+  return merged;
+}
+
+const BOOK_COLORS = [palette.brand, "#ff6b6b", palette.cream, "#14b8a6", "#f5c542", "#8b5cf6", "#3a5a98", "#e07a5f", "#2a3550"];
+
+/** A painted panel door with a cream frame, on the right wall. */
+function buildDoor(mats: Materials, z: number) {
+  const door = group("door");
+  const x = ROOM.half;
+  const w = 0.9;
+  const h = 2.1;
+  const paint = new MeshStandardMaterial({ color: "#2a3f69", roughness: 0.6 });
+  const inset = new MeshStandardMaterial({ color: "#243860", roughness: 0.65 });
+  const open = { cast: false };
+  door.add(
+    box(0.04, h, w, paint, x - 0.02, h / 2, z, open),
+    // two recessed panels
+    box(0.012, 0.86, w - 0.26, inset, x - 0.045, 1.5, z, open),
+    box(0.012, 0.74, w - 0.26, inset, x - 0.045, 0.52, z, open),
+    // frame
+    box(0.05, h + 0.07, 0.07, mats.frame, x - 0.025, (h + 0.07) / 2, z - w / 2 - 0.035, open),
+    box(0.05, h + 0.07, 0.07, mats.frame, x - 0.025, (h + 0.07) / 2, z + w / 2 + 0.035, open),
+    box(0.05, 0.07, w + 0.14, mats.frame, x - 0.025, h + 0.035, z, open),
+  );
+  // lever handle on a round rose
+  const rose = mesh(new CylinderGeometry(0.028, 0.028, 0.012, 32), mats.metal, open);
+  rose.rotation.z = Math.PI / 2;
+  rose.position.set(x - 0.046, 1.02, z - w / 2 + 0.09);
+  const lever = rbox(0.022, 0.022, 0.12, 0.008, mats.metal, x - 0.062, 1.02, z - w / 2 + 0.14, open);
+  door.add(rose, lever);
+  // light switch beside the frame
+  door.add(rbox(0.012, 0.11, 0.075, 0.006, mats.plasticLight, x - 0.006, 1.22, z - w / 2 - 0.22, open));
+  return { door, materials: [paint, inset] };
+}
+
+/** A wall clock on the right wall that shows Usman's local time. */
+function buildClock(mats: Materials, z: number, timeZone: string) {
+  const clock = group("clock");
+  const x = ROOM.half;
+  const y = 2.2;
+  const r = 0.24;
+  const open = { cast: false };
+  const rim = mesh(new CylinderGeometry(r + 0.02, r + 0.02, 0.05, 64), mats.plasticDark, open);
+  rim.rotation.z = Math.PI / 2;
+  rim.position.set(x - 0.025, y, z);
+  const face = mesh(new CylinderGeometry(r, r, 0.01, 64), mats.paper, open);
+  face.rotation.z = Math.PI / 2;
+  face.position.set(x - 0.052, y, z);
+  clock.add(rim, face);
+  const ticks: BufferGeometry[] = [];
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const long = i % 3 === 0;
+    const t = new BoxGeometry(0.006, long ? 0.05 : 0.025, long ? 0.016 : 0.01);
+    t.translate(0, r - (long ? 0.04 : 0.028), 0);
+    t.rotateX(a);
+    ticks.push(t);
+  }
+  const tickGeo = mergeGeometries(ticks);
+  ticks.forEach((g) => g.dispose());
+  const tickMesh = mesh(tickGeo, mats.plasticDark, open);
+  tickMesh.position.set(x - 0.06, y, z);
+  clock.add(tickMesh);
+  // Hands turn about the wall normal; seen from the room, +x rotation is clockwise.
+  const hand = (length: number, width: number, material: MeshStandardMaterial, offset: number) => {
+    const pivot = group("hand");
+    const m = box(0.006, length, width, material, 0, length / 2 - 0.03, 0, open);
+    pivot.add(m);
+    pivot.position.set(x - 0.066 - offset, y, z);
+    clock.add(pivot);
+    return pivot;
+  };
+  const hourHand = hand(0.14, 0.018, mats.plasticDark, 0);
+  const minuteHand = hand(0.2, 0.012, mats.plasticDark, 0.006);
+  const secondHand = hand(0.21, 0.004, mats.orange, 0.012);
+  const cap = mesh(new CylinderGeometry(0.014, 0.014, 0.02, 24), mats.orange, open);
+  cap.rotation.z = Math.PI / 2;
+  cap.position.set(x - 0.08, y, z);
+  clock.add(cap);
+
+  const format = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "numeric", minute: "numeric", second: "numeric", hour12: false });
+  let lastSecond = -1;
+  const update = () => {
+    const now = new Date();
+    const second = now.getSeconds();
+    if (second === lastSecond) return;
+    lastSecond = second;
+    let h = 0;
+    let m = 0;
+    for (const part of format.formatToParts(now)) {
+      if (part.type === "hour") h = Number(part.value);
+      else if (part.type === "minute") m = Number(part.value);
+    }
+    const turn = Math.PI * 2;
+    secondHand.rotation.x = (second / 60) * turn;
+    minuteHand.rotation.x = ((m + second / 60) / 60) * turn;
+    hourHand.rotation.x = (((h % 12) + m / 60) / 12) * turn;
+  };
+  update();
+  return { clock, update };
+}
+
+/** A tall bookcase against the front wall, its books merged into one mesh. */
+function buildBookcase(mats: Materials, cx: number) {
+  const shelf = group("bookcase");
+  const w = 1.3;
+  const h = 2.02;
+  const d = 0.32;
+  const t = 0.028;
+  const back = ROOM.half;
+  const front = back - d;
+  const zc = back - d / 2;
+  const open = { cast: false };
+  const boards = [0.07, 0.56, 1.05, 1.54, h - t / 2];
+  const frameParts: BufferGeometry[] = [
+    new BoxGeometry(t, h, d).translate(cx - w / 2 + t / 2, h / 2, zc),
+    new BoxGeometry(t, h, d).translate(cx + w / 2 - t / 2, h / 2, zc),
+    new BoxGeometry(w, h, 0.012).translate(cx, h / 2, back - 0.006),
+    ...boards.map((y) => new BoxGeometry(w - 2 * t, t, d - 0.012).translate(cx, y, zc - 0.006)),
+  ];
+  const frame = mesh(mergeGeometries(frameParts), mats.wood, open);
+  frameParts.forEach((g) => g.dispose());
+  shelf.add(frame);
+
+  const rand = mulberry32(64);
+  const books: Parameters<typeof tintedBoxes>[0] = [];
+  const left = cx - w / 2 + t;
+  const right = cx + w / 2 - t;
+  for (let s = 0; s < boards.length - 1; s++) {
+    const floor = boards[s] + t / 2;
+    const clear = boards[s + 1] - boards[s] - t;
+    let bx = left + 0.02 + rand() * 0.05;
+    // every shelf leaves a gap somewhere for a stack of books lying flat
+    const gapAt = left + 0.25 + rand() * (w - 0.7);
+    let stacked = false;
+    while (bx < right - 0.06) {
+      const color = BOOK_COLORS[Math.floor(rand() * BOOK_COLORS.length)];
+      if (!stacked && bx > gapAt) {
+        stacked = true;
+        let y = floor;
+        const n = 2 + Math.floor(rand() * 3);
+        for (let i = 0; i < n; i++) {
+          const bh = 0.035 + rand() * 0.02;
+          books.push({ size: [0.24 - i * 0.012, bh, 0.19], pos: [bx + 0.13, y + bh / 2, front + 0.03 + 0.095], color: BOOK_COLORS[(i * 3 + s) % BOOK_COLORS.length] });
+          y += bh;
+        }
+        bx += 0.3;
+        continue;
+      }
+      const bw = 0.028 + rand() * 0.032;
+      const bh = Math.min(clear - 0.04, 0.24 + rand() * 0.16);
+      const bd = 0.2 + rand() * 0.06;
+      const lean = rand() > 0.9 && bx < right - 0.2;
+      books.push({
+        size: [bw, bh, bd],
+        pos: [bx + bw / 2 + (lean ? 0.04 : 0), floor + bh / 2 - (lean ? 0.012 : 0), front + 0.025 + bd / 2],
+        rotZ: lean ? -0.3 : 0,
+        color,
+      });
+      bx += bw + 0.004 + (lean ? 0.1 : 0);
+    }
+  }
+  const bookMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+  shelf.add(mesh(tintedBoxes(books), bookMat, open));
+  return { shelf, materials: [bookMat] };
+}
+
+/** A two-seat sofa against the front wall, on the window side. */
+function buildSofa(mats: Materials, cx: number) {
+  const sofa = group("sofa");
+  const fabric = new MeshStandardMaterial({ color: "#33456d", roughness: 0.95 });
+  const w = 1.8;
+  const d = 0.86;
+  const back = ROOM.half;
+  const zc = back - d / 2 - 0.02;
+  const open = { cast: false };
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      sofa.add(box(0.05, 0.08, 0.05, mats.woodDark, cx + sx * (w / 2 - 0.08), 0.04, zc + sz * (d / 2 - 0.08), open));
+    }
+  }
+  sofa.add(
+    rbox(w, 0.24, d, 0.05, fabric, cx, 0.2, zc, open),
+    rbox(w, 0.52, 0.2, 0.07, fabric, cx, 0.58, back - 0.12, open),
+    rbox(0.18, 0.42, d, 0.07, fabric, cx - w / 2 + 0.09, 0.44, zc, open),
+    rbox(0.18, 0.42, d, 0.07, fabric, cx + w / 2 - 0.09, 0.44, zc, open),
+  );
+  for (const sx of [-1, 1]) {
+    sofa.add(rbox(0.7, 0.14, 0.66, 0.06, fabric, cx + sx * 0.36, 0.38, zc - 0.07, open));
+    const cushion = rbox(0.66, 0.4, 0.14, 0.06, fabric, cx + sx * 0.36, 0.62, back - 0.27, open);
+    cushion.rotation.x = 0.16;
+    sofa.add(cushion);
+  }
+  const pillow = rbox(0.34, 0.32, 0.12, 0.06, mats.fabricAccent, cx - 0.52, 0.6, back - 0.4, open);
+  pillow.rotation.set(0.25, 0.25, -0.12);
+  sofa.add(pillow);
+  return { sofa, materials: [fabric] };
+}
+
+/** A ring light on the ceiling in the brand color, with a soft wash around it. */
+function buildCeilingLight(mats: Materials, x: number, z: number) {
+  const light = group("ceiling-light");
+  const y = ROOM.height;
+  const open = { cast: false, receive: false };
+  const base = mesh(new CylinderGeometry(0.42, 0.42, 0.03, 64), mats.plasticDark, open);
+  base.position.set(x, y - 0.015, z);
+  const ring = mesh(new TorusGeometry(0.34, 0.014, 12, 96), mats.neon, open);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(x, y - 0.034, z);
+  const wash = glowCard(palette.brand, 2.6, 2.6, 0.32);
+  wash.rotation.x = Math.PI / 2;
+  wash.position.set(x, y - 0.004, z);
+  light.add(base, ring, wash);
+  return light;
+}
+
+export function createRoom(mats: Materials, opts: { lights: boolean; photo: string; timeZone: string }): RoomParts {
   const disposables: Array<{ dispose(): void }> = [];
   const root = group("room");
   const props: Object3D[] = [];
 
   // ---- shell -------------------------------------------------------------
+  // The key light shines in from the front-right, so only the back and left
+  // walls cast shadows; the front and right walls and the ceiling let it through.
   const shell = group("shell");
-  const W = ROOM.maxX - ROOM.minX;
-  const D = ROOM.maxZ - ROOM.minZ;
-  // BoxGeometry face order: +x, -x, +y, -y, +z, -z
-  const floorFaces: Material[] = [mats.wallEdge, mats.wallEdge, mats.floor, mats.wallEdge, mats.wallEdge, mats.wallEdge];
-  const floor = box(W, 0.32, D, floorFaces, (ROOM.minX + ROOM.maxX) / 2, -0.16, (ROOM.minZ + ROOM.maxZ) / 2, {
-    cast: false,
-  });
-  const backFaces: Material[] = [mats.wallEdge, mats.wall, mats.wallEdge, mats.wall, mats.wall, mats.wall];
-  const back = box(W, ROOM.height, 0.18, backFaces, (ROOM.minX + ROOM.maxX) / 2, ROOM.height / 2, -2.49);
-  const leftFaces: Material[] = [mats.wall, mats.wall, mats.wallEdge, mats.wall, mats.wallEdge, mats.wall];
-  const left = box(0.18, ROOM.height, ROOM.maxZ - ROOM.inner, leftFaces, -2.49, ROOM.height / 2, (ROOM.inner + ROOM.maxZ) / 2);
-  const baseBack = box(ROOM.maxX - ROOM.inner, 0.1, 0.03, mats.trim, (ROOM.inner + ROOM.maxX) / 2, 0.05, -2.385);
-  const baseLeft = box(0.03, 0.1, ROOM.maxZ - ROOM.inner, mats.trim, -2.385, 0.05, (ROOM.inner + ROOM.maxZ) / 2);
-  shell.add(floor, back, left, baseBack, baseLeft);
+  const { half, height: H, wall: T } = ROOM;
+  const outer = 2 * (half + T);
+  const ceilingMat = new MeshStandardMaterial({ color: "#16233e", roughness: 0.95 });
+  disposables.push(ceilingMat);
+  const open = { cast: false };
+  shell.add(
+    box(outer, 0.32, outer, mats.floor, 0, -0.16, 0, open),
+    box(outer, H, T, mats.wall, 0, H / 2, -(half + T / 2)),
+    box(T, H, 2 * half, mats.wall, -(half + T / 2), H / 2, 0),
+    box(T, H, 2 * half, mats.wall, half + T / 2, H / 2, 0, open),
+    box(outer, H, T, mats.wall, 0, H / 2, half + T / 2, open),
+    box(outer, 0.12, outer, ceilingMat, 0, H + 0.06, 0, open),
+  );
+  // skirting boards and a slim cornice where the walls meet the ceiling
+  for (const [y, h] of [
+    [0.05, 0.1],
+    [H - 0.025, 0.05],
+  ]) {
+    const edge = half - 0.015;
+    shell.add(
+      box(2 * half, h, 0.03, mats.trim, 0, y, -edge, open),
+      box(2 * half, h, 0.03, mats.trim, 0, y, edge, open),
+      box(0.03, h, 2 * half, mats.trim, -edge, y, 0, open),
+      box(0.03, h, 2 * half, mats.trim, edge, y, 0, open),
+    );
+  }
   root.add(shell);
 
   // ---- window --------------------------------------------------------------
@@ -380,6 +634,16 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   root.add(chair);
   props.push(chair);
 
+  // ---- the walls behind the default view (seen when dragging around) -------------
+  const { door, materials: doorMats } = buildDoor(mats, 1.15);
+  const { clock, update: updateClock } = buildClock(mats, -0.45, opts.timeZone);
+  const { shelf: bookcase, materials: bookMats } = buildBookcase(mats, 0.95);
+  const { sofa, materials: sofaMats } = buildSofa(mats, -1.25);
+  const ceilingLight = buildCeilingLight(mats, 0.2, -0.1);
+  disposables.push(...doorMats, ...bookMats, ...sofaMats);
+  root.add(door, clock, bookcase, sofa, ceilingLight);
+  props.push(sofa, bookcase, door, clock);
+
   return {
     root,
     props,
@@ -388,6 +652,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     plant: leaves,
     neonLight,
     neonMaterial,
+    update: updateClock,
     dispose() {
       disposables.forEach((d) => d.dispose());
     },
