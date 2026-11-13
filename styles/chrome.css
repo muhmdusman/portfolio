@@ -70,6 +70,90 @@ html[data-section="contact"] .scene__veil::after {
   opacity: 1;
 }
 
+/* Shown on the home section once the room is ready, until the first drag. */
+.scene__hint {
+  position: absolute;
+  right: var(--gutter);
+  bottom: calc(30px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 15px 9px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(6, 14, 28, 0.62);
+  color: var(--muted);
+  font: 500 11px/1 var(--ff-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.5s var(--ease-out),
+    transform 0.5s var(--ease-out);
+}
+
+html[data-scene="ready"]:is([data-section="home"], :not([data-section])):not([data-looked]) .scene__hint {
+  opacity: 1;
+  transform: none;
+  /* after the intro flight */
+  transition-delay: 2.6s;
+}
+
+/* a pill with a dot that slides from side to side */
+.scene__hint-icon {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border: 2px solid var(--line-strong);
+  border-radius: 9px;
+}
+
+.scene__hint-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--brand-2);
+  animation: look-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes look-dot {
+  0%,
+  100% {
+    transform: translateX(-7px);
+  }
+  50% {
+    transform: translateX(7px);
+  }
+}
+
+.scene__hint-touch {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .scene__hint-mouse {
+    display: none;
+  }
+
+  .scene__hint-touch {
+    display: inline;
+  }
+}
+
+/* While dragging the room: a closed hand everywhere, and no text selection. */
+html[data-dragging],
+html[data-dragging] * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .scene-tip {
   position: fixed;
   top: 0;
@@ -99,6 +183,16 @@ html[data-section="contact"] .scene__veil::after {
 
   .scene__veil::after {
     display: none;
+  }
+
+  /* just above the first content card, which scrolls over it */
+  .scene__hint {
+    top: calc(46svh - 52px);
+    right: auto;
+    bottom: auto;
+    left: 50%;
+    translate: -50% 0;
+    white-space: nowrap;
   }
 }
 

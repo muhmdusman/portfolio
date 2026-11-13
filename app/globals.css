@@ -120,6 +120,8 @@ main {
   align-items: center;
   min-height: 100svh;
   padding: clamp(104px, 14vh, 150px) 0 clamp(96px, 12vh, 130px);
+  /* Vertical swipes scroll the page; sideways swipes turn the 3D room. */
+  touch-action: pan-y pinch-zoom;
 }
 
 .wrap {

@@ -83,6 +83,10 @@ export function Scene() {
             placeTip();
           },
           onNavigate: (id) => scrollToSection(id, !reducedMotion),
+          // the visitor found the drag, so the hint can go
+          onLook: () => {
+            root.dataset.looked = "true";
+          },
         });
         if (disposed) {
           created.dispose();
@@ -117,6 +121,11 @@ export function Scene() {
       <div className="scene" aria-hidden="true">
         <div ref={containerRef} className="scene__canvas" />
         <div className="scene__veil" />
+        <p className="scene__hint">
+          <span className="scene__hint-icon" />
+          <span className="scene__hint-mouse">Drag to look around</span>
+          <span className="scene__hint-touch">Swipe sideways to look around</span>
+        </p>
       </div>
       <div ref={tipRef} className="scene-tip" data-visible="false" aria-hidden="true" />
     </>

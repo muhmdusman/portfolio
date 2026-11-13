@@ -4,7 +4,6 @@ import {
   Box3,
   Color,
   DirectionalLight,
-  Fog,
   HemisphereLight,
   type Material,
   Mesh,
@@ -41,6 +40,8 @@ export interface WorldOptions {
   fonts: { sans: string; mono: string };
   onHover?: (label: string | null) => void;
   onNavigate?: (section: SectionId) => void;
+  /** Called when the visitor starts dragging to look around. */
+  onLook?: () => void;
 }
 
 type HotspotId = "lamp" | "duck" | "tower" | "screen" | "plant" | "mug" | "poster0" | "poster1";
@@ -52,7 +53,10 @@ interface Hotspot {
   label: () => string;
 }
 
-const UI_SELECTOR = "a, button, input, textarea, select, label, dialog, [data-ui], [role='tab']";
+const UI_SELECTOR = "a, button, input, textarea, select, label, dialog, nav, [data-ui], [role='tab'], .topbar > *";
+
+/** Pixels a press has to travel before it turns into a drag (smaller moves still count as clicks). */
+const DRAG_THRESHOLD = 5;
 
 function detectTier() {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -68,7 +72,6 @@ function detectTier() {
     shadowSize: mobile ? 2048 : cores > 4 ? 4096 : 2048,
     /** Texture detail multiplier for canvas-drawn textures. */
     texScale: mobile ? 0.75 : 1,
-    stars: mobile ? 450 : 900,
     bugs: mobile ? 22 : 40,
     extraLights: !mobile,
   };
@@ -108,6 +111,9 @@ export class World {
   private readonly pointer = new Vector2(9, 9);
   private pointerDirty = false;
   private pointerOverUi = false;
+  /** A press on the room; `moved` once it has turned into a look-around drag. */
+  private press: { id: number; x: number; y: number; lastX: number; lastY: number; moved: boolean } | null = null;
+  private dragEndedAt = -Infinity;
   private readonly raycaster = new Raycaster();
   private hotspots: Hotspot[] = [];
   private hovered: Hotspot | null = null;
@@ -147,7 +153,6 @@ export class World {
   async init() {
     const { scene, renderer, tier } = this;
     scene.background = new Color(palette.night);
-    scene.fog = new Fog(palette.night, 22, 62);
 
     const pmrem = new PMREMGenerator(renderer);
     const roomEnv = new RoomEnvironment();
@@ -178,7 +183,13 @@ export class World {
     moon.shadow.bias = -0.0004;
     moon.shadow.normalBias = 0.025;
     moon.shadow.radius = 3;
-    scene.add(hemi, moon, moon.target);
+    // A soft bounce from the back-left, just below horizontal: it lifts the front
+    // and right walls and the ceiling, which face away from the key light, and
+    // leaves the floor and the back and left walls as they were.
+    const bounce = new DirectionalLight("#7f9cff", 1.15);
+    bounce.position.set(-6, -1.5, -6);
+    bounce.target.position.set(0, 1.4, 0);
+    scene.add(hemi, moon, moon.target, bounce, bounce.target);
 
     configureTextures({
       anisotropy: Math.min(16, renderer.capabilities.getMaxAnisotropy()),
@@ -194,10 +205,8 @@ export class World {
       font: this.opts.fonts.sans,
       mobile: tier.mobile,
     });
-    this.room = createRoom(mats, { lights: tier.extraLights, photo: profile.image });
-    this.atmosphere = createAtmosphere(mats, {
-      stars: tier.stars,
-      clouds: true,
+    this.room = createRoom(mats, { lights: tier.extraLights, photo: profile.image, timeZone: profile.timeZone });
+    this.atmosphere = createAtmosphere({
       bugs: tier.bugs,
       bugsOrigin: this.computer.keyboardCenter.clone().add(new Vector3(0, 0.03, 0)),
       steamOrigin: MUG_TOP,
@@ -312,11 +321,59 @@ export class World {
       const r = this.rect;
       this.pointer.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     };
+    const root = document.documentElement;
+    const isUi = (target: EventTarget | null) => target instanceof Element && target.closest(UI_SELECTOR) !== null;
+
+    // Press anywhere on the room (not on the page UI) and drag to look around.
+    const onPointerDown = (e: PointerEvent) => {
+      // a press whose release was lost (e.g. outside the window) must not linger
+      if (this.press) endPress();
+      if (!e.isPrimary) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (isUi(e.target)) return;
+      this.press = { id: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false };
+    };
     const onPointerMove = (e: PointerEvent) => {
+      const press = this.press;
+      if (press && e.pointerType === "mouse" && e.buttons === 0) endPress(e);
+      else if (press && e.pointerId === press.id) {
+        if (!press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_THRESHOLD) {
+          press.moved = true;
+          this.rig.beginDrag();
+          root.dataset.dragging = "true";
+          this.setHovered(null);
+          this.opts.onLook?.();
+        }
+        if (press.moved) {
+          this.rig.drag(e.clientX - press.lastX, e.clientY - press.lastY);
+          press.lastX = e.clientX;
+          press.lastY = e.clientY;
+          return;
+        }
+      }
       toNdc(e.clientX, e.clientY);
       this.rig.setPointer(this.pointer.x, this.pointer.y);
-      this.pointerOverUi = e.target instanceof Element && e.target.closest(UI_SELECTOR) !== null;
+      this.pointerOverUi = isUi(e.target);
       this.pointerDirty = e.pointerType === "mouse";
+    };
+    const endPress = (e?: PointerEvent) => {
+      const press = this.press;
+      if (!press || (e && e.pointerId !== press.id)) return;
+      this.press = null;
+      if (!press.moved) return;
+      this.rig.endDrag();
+      delete root.dataset.dragging;
+      this.dragEndedAt = performance.now();
+      if (e && e.pointerType === "mouse") {
+        toNdc(e.clientX, e.clientY);
+        this.pointerOverUi = isUi(e.target);
+        this.pointerDirty = true;
+      }
+    };
+    const onBlur = () => endPress();
+    // A press on the room starts a drag, not a text selection.
+    const onSelectStart = (e: Event) => {
+      if (this.press) e.preventDefault();
     };
     const onPointerLeave = () => {
       this.pointer.set(9, 9);
@@ -324,6 +381,8 @@ export class World {
       this.pointerDirty = true;
     };
     const onClick = (e: MouseEvent) => {
+      // the click that ends a drag is not a click on the room
+      if (performance.now() - this.dragEndedAt < 120) return;
       if (!this.hovered) {
         // touch devices: raycast on tap
         if (e.target instanceof Element && e.target.closest(UI_SELECTOR)) return;
@@ -356,7 +415,12 @@ export class World {
       }
     };
 
+    window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", endPress);
+    window.addEventListener("pointercancel", endPress);
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("selectstart", onSelectStart);
     document.documentElement.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("click", onClick);
     window.addEventListener("resize", onResize);
@@ -372,7 +436,12 @@ export class World {
     const unKey = this.opts.store.onKey((key) => this.computer.pressKey(key));
 
     this.cleanups.push(() => {
+      window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", endPress);
+      window.removeEventListener("pointercancel", endPress);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("selectstart", onSelectStart);
       document.documentElement.removeEventListener("pointerleave", onPointerLeave);
       window.removeEventListener("click", onClick);
       window.removeEventListener("resize", onResize);
@@ -382,7 +451,8 @@ export class World {
       ro.disconnect();
       unsubscribe();
       unKey();
-      document.documentElement.style.cursor = "";
+      root.style.cursor = "";
+      delete root.dataset.dragging;
     });
   }
 
@@ -460,6 +530,12 @@ export class World {
     }
   }
 
+  private setHovered(next: Hotspot | null) {
+    if (next === this.hovered) return;
+    this.hovered = next;
+    if (!this.flash) this.opts.onHover?.(next ? next.label() : null);
+  }
+
   private say(label: string) {
     this.flash = { label, until: performance.now() + 2200 };
     this.opts.onHover?.(label);
@@ -495,6 +571,7 @@ export class World {
 
     this.computer.update(dt, t, motion);
     this.posters.update(dt * motion);
+    this.room.update();
     this.atmosphere.update(t);
     const state = this.opts.store.getState();
     this.skills?.update(dt, t, this.rig.weights.skills, state.skillCategory, motion, this.camera.position, this.rig.target, this.camera);
@@ -517,12 +594,9 @@ export class World {
     // hover detection, once per frame at most
     if (this.pointerDirty) {
       this.pointerDirty = false;
-      const next = this.pick();
-      if (next !== this.hovered) {
-        this.hovered = next;
-        document.documentElement.style.cursor = next ? "pointer" : "";
-        if (!this.flash) this.opts.onHover?.(next ? next.label() : null);
-      }
+      this.setHovered(this.pick());
+      const overRoom = !this.pointerOverUi && Math.abs(this.pointer.x) <= 1;
+      document.documentElement.style.cursor = this.hovered ? "pointer" : overRoom ? "grab" : "";
     }
     if (this.flash && now > this.flash.until) {
       this.flash = null;
