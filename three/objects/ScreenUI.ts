@@ -1,4 +1,4 @@
-import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, SRGBColorSpace } from "three";
+import { CanvasTexture, LinearFilter, SRGBColorSpace } from "three";
 import {
   profile,
   projects,
@@ -14,7 +14,7 @@ import { createCanvas, roundRect } from "../core/textures";
 
 /**
  * Draws the "UsmanOS" desktop that lives on the 3D monitor. Everything is
- * painted into one 2D canvas (2048 x 1152 px on desktop) that is uploaded as
+ * painted into one 2D canvas (1600 x 900 on desktop, 1280 x 720 on phones) that is uploaded as
  * a texture only when something visible changed. Layout units are a
  * 1280 x 720 logical grid; the canvas transform scales them up.
  */
@@ -118,15 +118,16 @@ export class ScreenUI {
   constructor(state: PortfolioState, fonts: ScreenFonts, small: boolean, maxAnisotropy: number) {
     this.state = state;
     this.fonts = fonts;
-    this.scale = small ? 1.2 : 1.6;
+    this.scale = small ? 1 : 1.25;
     const { canvas, ctx } = createCanvas(Math.round(W * this.scale), Math.round(H * this.scale));
     this.ctx = ctx;
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingQuality = "medium";
     this.texture = new CanvasTexture(canvas);
     this.texture.colorSpace = SRGBColorSpace;
-    this.texture.anisotropy = Math.min(16, maxAnisotropy);
-    this.texture.minFilter = LinearMipmapLinearFilter;
+    this.texture.anisotropy = Math.min(4, maxAnisotropy);
+    this.texture.generateMipmaps = false;
+    this.texture.minFilter = LinearFilter;
     this.texture.magFilter = LinearFilter;
     this.draw();
   }
@@ -229,8 +230,8 @@ export class ScreenUI {
       }
     }
 
-    // Cap texture uploads at ~30 fps.
-    if (this.dirty && this.sinceDraw >= 1 / 30) {
+    const minInterval = this.mode === "projects" ? 1 / 12 : 1 / 20;
+    if (this.dirty && this.sinceDraw >= minInterval) {
       this.draw();
       return true;
     }

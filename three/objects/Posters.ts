@@ -49,10 +49,10 @@ function drawMark(ctx: Ctx, x: number, y: number, size: number, fill: string, st
 function aspirePoster(sans: string, mono: string) {
   const { canvas, ctx } = createScaledCanvas(PW, PH);
   const sky = ctx.createLinearGradient(0, 0, 0, PH);
-  sky.addColorStop(0, "#081634");
-  sky.addColorStop(0.5, "#16286a");
-  sky.addColorStop(0.78, "#3b2470");
-  sky.addColorStop(1, "#1a1036");
+  sky.addColorStop(0, "#10233f");
+  sky.addColorStop(0.48, "#1d3d66");
+  sky.addColorStop(0.74, "#c47a4a");
+  sky.addColorStop(1, "#1a2433");
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, PW, PH);
 
@@ -70,8 +70,8 @@ function aspirePoster(sans: string, mono: string) {
   const sy = PH * 0.74;
   const sr = PW * 0.3;
   const halo = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 2.1);
-  halo.addColorStop(0, "rgba(255,140,120,0.45)");
-  halo.addColorStop(1, "rgba(255,140,120,0)");
+  halo.addColorStop(0, "rgba(255, 186, 120, 0.28)");
+  halo.addColorStop(1, "rgba(255, 186, 120, 0)");
   ctx.fillStyle = halo;
   ctx.fillRect(0, sy - sr * 2.1, PW, sr * 4.2);
   ctx.save();
@@ -79,9 +79,9 @@ function aspirePoster(sans: string, mono: string) {
   ctx.arc(sx, sy, sr, 0, Math.PI * 2);
   ctx.clip();
   const sun = ctx.createLinearGradient(0, sy - sr, 0, sy + sr);
-  sun.addColorStop(0, "#ffd36b");
-  sun.addColorStop(0.55, "#ff8a5c");
-  sun.addColorStop(1, "#ff4f8b");
+  sun.addColorStop(0, "#ffe1a8");
+  sun.addColorStop(0.55, "#f0a15a");
+  sun.addColorStop(1, "#d86a45");
   ctx.fillStyle = sun;
   ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
   ctx.globalCompositeOperation = "destination-out";
@@ -103,9 +103,9 @@ function aspirePoster(sans: string, mono: string) {
     ctx.fillStyle = color;
     ctx.fill();
   };
-  ridge(PH * 0.8, [[0.12, 0.74], [0.27, 0.8], [0.44, 0.7], [0.6, 0.79], [0.78, 0.72], [0.92, 0.78]], "#2a1a55");
-  ridge(PH * 0.86, [[0.18, 0.82], [0.35, 0.88], [0.52, 0.8], [0.7, 0.87], [0.86, 0.82]], "#140d33");
-  ctx.fillStyle = "#0b0822";
+  ridge(PH * 0.8, [[0.12, 0.74], [0.27, 0.8], [0.44, 0.7], [0.6, 0.79], [0.78, 0.72], [0.92, 0.78]], "#243044");
+  ridge(PH * 0.86, [[0.18, 0.82], [0.35, 0.88], [0.52, 0.8], [0.7, 0.87], [0.86, 0.82]], "#17202c");
+  ctx.fillStyle = "#101820";
   ctx.fillRect(0, PH * 0.93, PW, PH * 0.07);
 
   // headline
@@ -221,7 +221,7 @@ export function createPosters(opts: { fonts: { sans: string; mono: string } }): 
       roughness: 0.75,
       emissive: "#ffffff",
       emissiveMap: texture,
-      emissiveIntensity: 0.32,
+      emissiveIntensity: 0.08,
     });
     disposables.push(texture, material);
     // pivot at the nail so the swing looks natural
@@ -241,7 +241,7 @@ export function createPosters(opts: { fonts: { sans: string; mono: string } }): 
     lamp.add(box(0.02, 0.06, 0.02, brass, spec.x, y + height / 2 + 0.085, -2.375));
     const strip = box(0.32, 0.004, 0.012, new MeshBasicMaterial({ color: "#ffe6bf", toneMapped: false }), spec.x, y + height / 2 + 0.098, -2.346, { cast: false, receive: false });
     lamp.add(strip);
-    const wash = glowCard(palette.warm, width * 1.5, height * 0.9, 0.22);
+    const wash = glowCard(palette.warm, width * 1.15, height * 0.7, 0.1);
     wash.position.set(spec.x, y + height * 0.22, -2.355);
     lamp.add(wash);
     root.add(lamp);

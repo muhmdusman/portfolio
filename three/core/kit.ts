@@ -13,7 +13,7 @@ import {
   type Texture,
 } from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { floorTexture, glowTexture } from "./textures";
+import { fabricTexture, floorTexture, glowTexture, plasterTexture, woodGrainTexture } from "./textures";
 
 /** Brand palette shared by the 3D scene and the UI. */
 export const palette = {
@@ -34,24 +34,30 @@ export function createMaterials() {
 
   const floorMap = floorTexture();
   floorMap.repeat.set(2, 2);
+  const wallMap = plasterTexture();
+  wallMap.repeat.set(2.2, 1.6);
+  const woodMap = woodGrainTexture();
+  woodMap.repeat.set(1.4, 1.4);
+  const clothMap = fabricTexture();
+  clothMap.repeat.set(4, 4);
 
   return {
-    wall: std(palette.wall, 0.95),
-    floor: std("#ffffff", 0.82, 0, { map: floorMap }),
-    trim: std("#2a426e", 0.8),
-    wood: std("#a86f45", 0.62),
-    woodDark: std("#5e3d28", 0.7),
-    frame: std(palette.cream, 0.7),
-    metalDark: std("#171c27", 0.42, 0.65),
-    metal: std("#a3acbd", 0.3, 0.9),
-    plasticDark: std("#0f131b", 0.5),
-    plasticLight: std(palette.cream, 0.55),
-    keycap: std("#ffffff", 0.55),
-    deskMat: std("#0d1830", 0.95),
+    wall: std("#ffffff", 0.97, 0, { map: wallMap }),
+    floor: std("#ffffff", 0.86, 0, { map: floorMap }),
+    trim: std("#243656", 0.84),
+    wood: std("#ffffff", 0.58, 0.02, { map: woodMap }),
+    woodDark: std("#4e3424", 0.72),
+    frame: std("#e4dccb", 0.72),
+    metalDark: std("#1a1e26", 0.46, 0.72),
+    metal: std("#b7bec9", 0.28, 0.86),
+    plasticDark: std("#14181f", 0.55),
+    plasticLight: std("#ded6c8", 0.5),
+    keycap: std("#f3efe6", 0.48),
+    deskMat: std("#121820", 0.96),
     accent: std(palette.brand, 0.45),
-    orange: std("#ff8a3d", 0.55),
-    fabric: std("#222b3f", 0.95),
-    fabricAccent: std(palette.brand, 0.9),
+    orange: std("#e07a32", 0.55),
+    fabric: std("#2c3548", 0.94, 0, { map: clothMap }),
+    fabricAccent: std("#cbbfa6", 0.9),
     leafA: std("#2e9b5f", 0.7),
     leafB: std("#3cbf73", 0.7),
     leafC: std("#1f7a48", 0.7),
