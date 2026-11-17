@@ -2,7 +2,7 @@ import { AdditiveBlending, BufferAttribute, BufferGeometry, Color, type Group, P
 import { group } from "../core/kit";
 import { mulberry32 } from "../core/math";
 
-/** Small particle effects inside the room: fireflies above the keyboard and steam from the mug. */
+/** Dust in the window light, and a little steam off the mug. Both are cheap points. */
 
 const riseVertex = /* glsl */ `
   attribute vec3 aDir;
@@ -106,33 +106,32 @@ export interface AtmosphereParts {
 export function createAtmosphere(opts: { bugsOrigin: Vector3; steamOrigin: Vector3; bugs: number }): AtmosphereParts {
   const root = group("atmosphere");
 
-  // bugs taking flight (fireflies) + coffee steam
-  const bugs = createRisingParticles({
+  const dust = createRisingParticles({
     count: opts.bugs,
     origin: opts.bugsOrigin,
-    color: "#ffe9a3",
-    size: 46,
-    spread: 2.6,
-    height: 2.4,
-    speed: 0.05,
-    wobble: 0.07,
-    opacity: 0.95,
+    color: "#d7e3f2",
+    size: 16,
+    spread: 1.15,
+    height: 0.9,
+    speed: 0.03,
+    wobble: 0.035,
+    opacity: 0.22,
     seed: 17,
   });
   const steam = createRisingParticles({
-    count: 14,
+    count: 8,
     origin: opts.steamOrigin,
-    color: "#cfe0ff",
-    size: 34,
-    spread: 0.07,
-    height: 0.34,
-    speed: 0.32,
-    wobble: 0.02,
-    opacity: 0.35,
+    color: "#e4eaf3",
+    size: 20,
+    spread: 0.05,
+    height: 0.28,
+    speed: 0.28,
+    wobble: 0.015,
+    opacity: 0.22,
     seed: 23,
   });
-  root.add(bugs, steam);
-  const materials = [bugs.material, steam.material] as ShaderMaterial[];
+  root.add(dust, steam);
+  const materials = [dust.material, steam.material] as ShaderMaterial[];
 
   return {
     root,
@@ -143,7 +142,7 @@ export function createAtmosphere(opts: { bugsOrigin: Vector3; steamOrigin: Vecto
       for (const m of materials) m.uniforms.uPixelRatio.value = pr;
     },
     dispose() {
-      bugs.geometry.dispose();
+      dust.geometry.dispose();
       steam.geometry.dispose();
       materials.forEach((m) => m.dispose());
     },

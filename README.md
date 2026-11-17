@@ -6,9 +6,9 @@ Content comes from [muhmdusman/React-js-Portfolio](https://github.com/muhmdusman
 
 ## What's in it
 
-- **A procedural 3D room.** A closed room with four walls and a ceiling. The desk, a wide 1.44 m monitor, a mechanical keyboard, mouse, lamp, coffee mug, RGB PC tower, office chair, window, shelf with a rubber duck, a framed photo, two quote posters, a neon `</>` sign and a plant face the default view. Behind it are a door, a wall clock that shows the time in Pakistan, a sofa, a bookcase and a ring light on the ceiling. Everything is built from Three.js primitives; there are no model files to download.
+- **A procedural 3D room.** A closed room with four walls and a ceiling. The desk, a wide 1.44 m monitor, a mechanical keyboard, mouse, lamp, ceramic mug, PC tower, office chair, window, shelf with a rubber duck, a framed photo, two quote posters, a framed print and a plant face the default view. Behind it are a door, a wall clock that shows the time in Pakistan, a sofa, a bookcase and a recessed ceiling light. Everything is built from Three.js primitives; there are no model files to download.
 - **Two motto posters.** "Be what you want to be" (a synthwave sunset) and "Hardwork · Faith · Discipline" (a Swiss-style print) hang on the back wall under brass picture lights. Both are drawn on a canvas at 2× resolution, so the type stays sharp up close.
-- **A computer that mirrors the page.** The monitor runs "UsmanOS", a desktop drawn into a 2048 × 1152 canvas texture (1536 × 864 on phones). Each section opens a different app on it:
+- **A computer that mirrors the page.** The monitor runs "UsmanOS", a desktop drawn into a 1600 × 900 canvas texture (1280 × 720 on phones). Each section opens a different app on it:
   - Home: a terminal that types the same phrases as the hero typewriter.
   - Skills: a code editor showing the selected category.
   - Projects: a full-screen browser showing the project you hover or scroll to. It slowly scrolls through the whole screenshot.
@@ -26,9 +26,9 @@ Content comes from [muhmdusman/React-js-Portfolio](https://github.com/muhmdusman
 - The hero is server-rendered HTML, so the LCP element is text. The Three.js world is a separate chunk that only downloads once the browser is idle (`requestIdleCallback`), and it fades in after its shaders are precompiled.
 - No extra runtime dependencies: just `next`, `react` and `three`. Animation, damping and the dock use small in-house helpers, and icons are bundled as inline SVG (`lib/icons.ts`) instead of being fetched at runtime.
 - The shadow map renders once, after the intro, because nothing large moves after that. Glows are additive sprites instead of a post-processing pass, and static props share materials.
-- Rendering is tuned for sharpness first. MSAA is always on, and the pixel ratio is capped at 2. It only drops, and never below 1, when frames stay slow for two measuring windows in a row (the intro is not measured). Canvas textures are drawn at 2× with anisotropic filtering, and desktops get a 4096 px shadow map. Phones get fewer particles and fewer lights.
+- Rendering starts below the display density (1.5× on desktop, 1.25× on phones) and only climbs, up to 2×, when frames stay fast. MSAA stays on. The shadow map is 2048 px on desktop and 1024 px on phones, and it updates a few times during the intro instead of every frame. Canvas textures are drawn with anisotropic filtering. Phones get fewer particles and no extra point lights. The PC's RGB is a dim steady white until you click the tower.
 - The render loop pauses when the tab is hidden. The canvas is sized to the large viewport so mobile URL-bar animations don't reallocate it.
-- The monitor texture is re-uploaded only when its content changes, at most 30 times per second.
+- The monitor texture is re-uploaded only when its content changes, at most 20 times a second (12 while a project screenshot is scrolling), and without rebuilding mipmaps.
 - Images were converted to WebP at quality 0.92 from the original files: about 550 KB total for the nine project screenshots, down from about 2.9 MB, and 146 KB for the profile photo, down from 994 KB. Pages use `next/image`, and the screenshots for the 3D monitor are lazy-loaded at idle time and drawn with high-quality smoothing.
 - Scroll reveals use CSS scroll-driven animations, so no JavaScript runs for them, and content stays visible in browsers without support.
 - `prefers-reduced-motion` is respected: no intro flight, idle animation or parallax, and dragging has no momentum.

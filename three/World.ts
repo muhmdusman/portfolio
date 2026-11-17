@@ -22,7 +22,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { profile, projects, type SectionId } from "@/content/portfolio";
 import type { PortfolioState, PortfolioStore } from "@/lib/store";
 import { CameraRig, CLOSE_UPS } from "./CameraRig";
-import { createMaterials, palette } from "./core/kit";
+import { createMaterials } from "./core/kit";
 import { clamp, damp, easeInOutCubic, easeOutBack, lerp } from "./core/math";
 import { configureTextures, loadImage } from "./core/textures";
 import { createAtmosphere } from "./objects/Atmosphere";
@@ -61,18 +61,17 @@ const DRAG_THRESHOLD = 5;
 function detectTier() {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const small = Math.min(window.innerWidth, window.innerHeight) < 600;
-  const cores = navigator.hardwareConcurrency || 4;
   const mobile = coarse || small;
   return {
     mobile,
-    /** Render at the display's real density (capped at 2) so edges and text stay sharp. */
-    maxDpr: 2,
+    /** Render at most this dense. The loop starts lower and only climbs if frames stay fast. */
+    maxDpr: mobile ? 1.5 : 2,
     /** Adaptive scaling never goes below this, so the scene never looks pixelated. */
     minDpr: 1,
-    shadowSize: mobile ? 2048 : cores > 4 ? 4096 : 2048,
+    shadowSize: mobile ? 1024 : 2048,
     /** Texture detail multiplier for canvas-drawn textures. */
     texScale: mobile ? 0.75 : 1,
-    bugs: mobile ? 22 : 40,
+    bugs: mobile ? 8 : 14,
     extraLights: !mobile,
   };
 }
@@ -98,6 +97,7 @@ export class World {
 
   private props: Object3D[] = [];
   private introClock = -1;
+  private introFrames = 0;
   private time = 0;
   private last = 0;
   private running = false;
@@ -118,7 +118,7 @@ export class World {
   private hotspots: Hotspot[] = [];
   private hovered: Hotspot | null = null;
   private lampOn = true;
-  private rgbModes: RgbMode[] = ["rainbow", "brand", "off"];
+  private rgbModes: RgbMode[] = ["steady", "rainbow", "brand", "off"];
   private rgbIndex = 0;
   private duckT = 1;
   private plantT = 1;
@@ -141,18 +141,20 @@ export class World {
       alpha: false,
       stencil: false,
     });
-    this.dpr = Math.min(window.devicePixelRatio || 1, this.tier.maxDpr);
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.tier.mobile ? 1.25 : 1.5);
     this.renderer.setPixelRatio(this.dpr);
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
+    // Shadows update on demand. The intro refreshes them a few times, then they freeze.
+    this.renderer.shadowMap.autoUpdate = false;
     this.rig = new CameraRig(this.camera, opts.reducedMotion);
   }
 
   async init() {
     const { scene, renderer, tier } = this;
-    scene.background = new Color(palette.night);
+    scene.background = new Color("#070d16");
 
     const pmrem = new PMREMGenerator(renderer);
     const roomEnv = new RoomEnvironment();
@@ -165,10 +167,10 @@ export class World {
     });
     pmrem.dispose();
     scene.environment = this.envTexture;
-    scene.environmentIntensity = 0.22;
+    scene.environmentIntensity = 0.32;
 
-    const hemi = new HemisphereLight("#6c8fd6", "#0b1220", 0.75);
-    const moon = new DirectionalLight("#c4d8ff", 2.1);
+    const hemi = new HemisphereLight("#c5d2e4", "#3a3228", 0.82);
+    const moon = new DirectionalLight("#f3f6ff", 1.85);
     moon.position.set(6.5, 10, 7.5);
     moon.target.position.set(-0.4, 0.4, -1.2);
     moon.castShadow = true;
@@ -180,13 +182,11 @@ export class World {
     sc.bottom = -3.6;
     sc.near = 4;
     sc.far = 26;
-    moon.shadow.bias = -0.0004;
-    moon.shadow.normalBias = 0.025;
-    moon.shadow.radius = 3;
-    // A soft bounce from the back-left, just below horizontal: it lifts the front
-    // and right walls and the ceiling, which face away from the key light, and
-    // leaves the floor and the back and left walls as they were.
-    const bounce = new DirectionalLight("#7f9cff", 1.15);
+    moon.shadow.bias = -0.00035;
+    moon.shadow.normalBias = 0.028;
+    moon.shadow.radius = tier.mobile ? 1 : 1.5;
+    // A soft bounce from the back-left lifts the walls that face away from the key light.
+    const bounce = new DirectionalLight("#93a6c6", 0.7);
     bounce.position.set(-6, -1.5, -6);
     bounce.target.position.set(0, 1.4, 0);
     scene.add(hemi, moon, moon.target, bounce, bounce.target);
@@ -205,10 +205,10 @@ export class World {
       font: this.opts.fonts.sans,
       mobile: tier.mobile,
     });
-    this.room = createRoom(mats, { lights: tier.extraLights, photo: profile.image, timeZone: profile.timeZone });
+    this.room = createRoom(mats, { photo: profile.image, timeZone: profile.timeZone });
     this.atmosphere = createAtmosphere({
       bugs: tier.bugs,
-      bugsOrigin: this.computer.keyboardCenter.clone().add(new Vector3(0, 0.03, 0)),
+      bugsOrigin: new Vector3(-1.35, 0.35, 0.85),
       steamOrigin: MUG_TOP,
     });
     this.posters = createPosters({ fonts: this.opts.fonts });
@@ -308,7 +308,7 @@ export class World {
     this.hotspots = [
       make("screen", c.screen, () => "Open my projects"),
       make("lamp", c.lamp, () => (this.lampOn ? "Turn the lamp off" : "Turn the lamp on")),
-      make("tower", c.tower, () => `RGB: ${this.rgbModes[(this.rgbIndex + 1) % 3]}`),
+      make("tower", c.tower, () => `RGB: ${this.rgbModes[(this.rgbIndex + 1) % this.rgbModes.length]}`),
       make("duck", r.duck, () => "Ask the debugging duck"),
       make("plant", r.plant, () => "Water the plant"),
       make("mug", c.mug, () => "More coffee"),
@@ -564,7 +564,8 @@ export class World {
       if (done && this.rig.introDone) {
         this.introClock = -1;
         this.props.forEach((p) => p.scale.setScalar(1));
-        this.renderer.shadowMap.autoUpdate = false;
+        this.renderer.shadowMap.needsUpdate = true;
+      } else if ((this.introFrames++ & 3) === 0) {
         this.renderer.shadowMap.needsUpdate = true;
       }
     }

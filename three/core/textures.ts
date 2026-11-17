@@ -67,7 +67,7 @@ export function glowTexture(): Texture {
   return toTexture(canvas);
 }
 
-/** Warm wooden planks with a little grain. */
+/** Warm wooden planks. Gaps stay narrow so the floor doesn't read as a cartoon grid. */
 export function floorTexture(): Texture {
   const size = 512;
   const { canvas, ctx } = createScaledCanvas(size, size);
@@ -78,49 +78,137 @@ export function floorTexture(): Texture {
     let x = -rand() * 200;
     while (x < size) {
       const w = 160 + rand() * 180;
-      const shade = 0.86 + rand() * 0.22;
-      ctx.fillStyle = `rgb(${Math.round(92 * shade)}, ${Math.round(62 * shade)}, ${Math.round(46 * shade)})`;
+      const shade = 0.9 + rand() * 0.16;
+      ctx.fillStyle = `rgb(${Math.round(118 * shade)}, ${Math.round(86 * shade)}, ${Math.round(62 * shade)})`;
       ctx.fillRect(x, r * rowH, w, rowH);
-      // grain
-      ctx.strokeStyle = "rgba(40, 22, 14, 0.18)";
+      ctx.strokeStyle = "rgba(60, 36, 20, 0.14)";
       ctx.lineWidth = 1;
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 3; i++) {
         const gy = r * rowH + 6 + rand() * (rowH - 12);
         ctx.beginPath();
         ctx.moveTo(x + 4, gy);
-        ctx.bezierCurveTo(x + w * 0.3, gy + 3, x + w * 0.6, gy - 3, x + w - 4, gy + 1);
+        ctx.bezierCurveTo(x + w * 0.3, gy + 2, x + w * 0.6, gy - 2, x + w - 4, gy);
         ctx.stroke();
       }
-      ctx.fillStyle = "rgba(20, 10, 6, 0.55)";
-      ctx.fillRect(x, r * rowH, 2, rowH);
+      ctx.fillStyle = "rgba(30, 18, 10, 0.28)";
+      ctx.fillRect(x, r * rowH, 1, rowH);
       x += w;
     }
-    ctx.fillStyle = "rgba(20, 10, 6, 0.6)";
-    ctx.fillRect(0, r * rowH, size, 2);
+    ctx.fillStyle = "rgba(30, 18, 10, 0.28)";
+    ctx.fillRect(0, r * rowH, size, 1);
   }
   const texture = toTexture(canvas);
   texture.wrapS = texture.wrapT = RepeatWrapping;
   return texture;
 }
 
-export function rugTexture(accent: string): Texture {
+/** Plaster with a little tone variation, so the walls aren't a flat fill. */
+export function plasterTexture(): Texture {
+  const size = 256;
+  const { canvas, ctx } = createScaledCanvas(size, size);
+  ctx.fillStyle = "#1c2b46";
+  ctx.fillRect(0, 0, size, size);
+  const rand = mulberry32(5);
+  for (let i = 0; i < 80; i++) {
+    const tone = 14 + rand() * 22;
+    ctx.fillStyle = `rgba(${tone + 6}, ${tone + 14}, ${tone + 28}, ${0.05 + rand() * 0.08})`;
+    const w = 16 + rand() * 48;
+    ctx.beginPath();
+    ctx.ellipse(rand() * size, rand() * size, w, w * (0.45 + rand() * 0.4), rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = toTexture(canvas);
+  texture.wrapS = texture.wrapT = RepeatWrapping;
+  return texture;
+}
+
+/** Walnut tabletop grain. Tiled gently; the streaks run along U. */
+export function woodGrainTexture(): Texture {
   const size = 512;
   const { canvas, ctx } = createScaledCanvas(size, size);
-  const c = size / 2;
-  const rings = ["#15233f", "#1c2f52", "#15233f", accent, "#1c2f52", "#15233f", "#22385f", "#15233f"];
-  rings.forEach((color, i) => {
+  const rand = mulberry32(9);
+  const base = ctx.createLinearGradient(0, 0, 0, size);
+  base.addColorStop(0, "#a56b42");
+  base.addColorStop(0.5, "#8d5834");
+  base.addColorStop(1, "#9a623c");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += 2) {
+    const n = rand();
+    ctx.fillStyle = `rgba(${Math.round(70 + n * 30)}, ${Math.round(36 + n * 16)}, ${Math.round(18 + n * 8)}, ${0.08 + n * 0.12})`;
+    ctx.fillRect(0, y, size, 1);
+  }
+  ctx.strokeStyle = "rgba(62, 32, 16, 0.28)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 16; i++) {
+    const y = rand() * size;
     ctx.beginPath();
-    ctx.arc(c, c, c * (1 - i / rings.length), 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-  });
-  // tufted noise
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(size * 0.33, y + (rand() - 0.5) * 8, size * 0.66, y + (rand() - 0.5) * 8, size, y + (rand() - 0.5) * 4);
+    ctx.stroke();
+  }
+  const texture = toTexture(canvas);
+  texture.wrapS = texture.wrapT = RepeatWrapping;
+  return texture;
+}
+
+/** Near-white weave. Tint it with the material color. */
+export function fabricTexture(): Texture {
+  const size = 128;
+  const { canvas, ctx } = createScaledCanvas(size, size, 2);
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillRect(0, 0, size, size);
+  const rand = mulberry32(4);
+  for (let y = 0; y < size; y += 2) {
+    ctx.fillStyle = rand() > 0.5 ? "rgba(0,0,0,0.045)" : "rgba(255,255,255,0.2)";
+    ctx.fillRect(0, y, size, 1);
+  }
+  for (let i = 0; i < 400; i++) {
+    ctx.fillStyle = "rgba(0,0,0,0.05)";
+    ctx.fillRect(rand() * size, rand() * size, 1, 1);
+  }
+  const texture = toTexture(canvas);
+  texture.wrapS = texture.wrapT = RepeatWrapping;
+  return texture;
+}
+
+/** A single leaf card. The empty canvas stays transparent so alphaTest can cut it. */
+export function leafTexture(): Texture {
+  const size = 128;
+  const { canvas, ctx } = createScaledCanvas(size, size, 2);
+  ctx.translate(size / 2, size / 2);
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.46);
+  ctx.bezierCurveTo(size * 0.38, -size * 0.16, size * 0.34, size * 0.22, 0, size * 0.46);
+  ctx.bezierCurveTo(-size * 0.34, size * 0.22, -size * 0.38, -size * 0.16, 0, -size * 0.46);
+  ctx.fillStyle = "#f4fff6";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(20, 60, 30, 0.35)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.36);
+  ctx.quadraticCurveTo(size * 0.02, 0, 0, size * 0.36);
+  ctx.stroke();
+  return toTexture(canvas);
+}
+
+/** Rectangular wool rug: dark field, linen border, no target rings. */
+export function rugTexture(): Texture {
+  const w = 512;
+  const h = 344;
+  const { canvas, ctx } = createScaledCanvas(w, h);
+  ctx.fillStyle = "#1c2636";
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "#d9d0c0";
+  ctx.lineWidth = 16;
+  ctx.strokeRect(16, 16, w - 32, h - 32);
+  ctx.strokeStyle = "#31425c";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(34, 34, w - 68, h - 68);
   const rand = mulberry32(3);
-  for (let i = 0; i < 2600; i++) {
-    const a = rand() * Math.PI * 2;
-    const d = Math.sqrt(rand()) * c;
-    ctx.fillStyle = rand() > 0.5 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.06)";
-    ctx.fillRect(c + Math.cos(a) * d, c + Math.sin(a) * d, 2, 2);
+  for (let i = 0; i < 1400; i++) {
+    ctx.fillStyle = rand() > 0.5 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.05)";
+    ctx.fillRect(rand() * w, rand() * h, 2, 2);
   }
   return toTexture(canvas);
 }

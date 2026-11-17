@@ -1,13 +1,20 @@
 import {
+  BoxGeometry,
+  type BufferGeometry,
   CapsuleGeometry,
+  CircleGeometry,
   Color,
   CylinderGeometry,
+  DoubleSide,
+  Euler,
   Float32BufferAttribute,
   type Group,
+  InstancedMesh,
+  Matrix4,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  type Object3D,
   PlaneGeometry,
-  PointLight,
   Quaternion,
   SphereGeometry,
   SRGBColorSpace,
@@ -15,14 +22,11 @@ import {
   TextureLoader,
   TorusGeometry,
   Vector3,
-  type BufferGeometry,
-  type Object3D,
-  BoxGeometry,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { box, glowCard, group, mesh, palette, rbox, type Materials } from "../core/kit";
+import { box, glowCard, group, mesh, rbox, type Materials } from "../core/kit";
 import { mulberry32 } from "../core/math";
-import { createScaledCanvas, rugTexture, textureQuality, toTexture, windowSkyTexture } from "../core/textures";
+import { createScaledCanvas, leafTexture, rugTexture, textureQuality, toTexture, windowSkyTexture } from "../core/textures";
 
 /**
  * The closed room: floor, four walls and a ceiling, a window, wall decor, a
@@ -49,55 +53,37 @@ export interface RoomParts {
   duck: Group;
   chair: Group;
   plant: Group;
-  neonLight: PointLight | null;
-  neonMaterial: MeshBasicMaterial;
   /** Moves the clock hands; cheap enough to call every frame. */
   update(): void;
   dispose(): void;
 }
 
-function segmentTube(points: Vector3[], radius: number) {
-  const parts: BufferGeometry[] = [];
-  const up = new Vector3(0, 1, 0);
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const dir = new Vector3().subVectors(b, a);
-    const len = dir.length();
-    const cyl = new CylinderGeometry(radius, radius, len, 20, 1, true);
-    cyl.applyQuaternion(new Quaternion().setFromUnitVectors(up, dir.normalize()));
-    cyl.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-    parts.push(cyl);
-  }
-  for (const p of points) {
-    const s = new SphereGeometry(radius, 20, 14);
-    s.translate(p.x, p.y, p.z);
-    parts.push(s);
-  }
-  const merged = mergeGeometries(parts.map((g) => g.toNonIndexed()));
-  parts.forEach((g) => g.dispose());
-  return merged;
-}
-
 function stickyNotesTexture() {
   const { canvas, ctx } = createScaledCanvas(768, 256);
   const notes: Array<[string, string[], number]> = [
-    ["#ffe27a", ["ship it", "→ prod"], -0.05],
-    ["#7ee0c3", ["LCP < 2.5s", "CLS < 0.1"], 0.04],
-    ["#ffa6c9", ["drink", "water :)"], -0.02],
+    ["#f4e39a", ["ship friday", "no heroics"], -0.04],
+    ["#efe0a2", ["lcp  <  2.5s", "cls  <  0.1"], 0.035],
+    ["#f7e7b0", ["water", "the plant"], -0.02],
   ];
+  const rand = mulberry32(15);
   notes.forEach(([color, lines, rot], i) => {
     ctx.save();
     ctx.translate(128 + i * 256, 128);
     ctx.rotate(rot);
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.fillRect(-100, -96, 216, 216);
     ctx.fillStyle = color;
     ctx.fillRect(-108, -108, 216, 216);
-    ctx.fillStyle = "rgba(0,0,0,0.08)";
-    ctx.fillRect(-108, -108, 216, 26);
-    ctx.fillStyle = "#26314a";
-    ctx.font = "600 38px 'Comic Sans MS', 'Segoe Print', cursive, sans-serif";
+    ctx.fillStyle = "rgba(180,150,60,0.35)";
+    ctx.fillRect(-108, -108, 216, 18);
+    for (let n = 0; n < 40; n++) {
+      ctx.fillStyle = "rgba(80,60,20,0.05)";
+      ctx.fillRect(-100 + rand() * 200, -90 + rand() * 190, 2, 1);
+    }
+    ctx.fillStyle = "#3a3428";
+    ctx.font = "500 34px ui-sans-serif, 'Segoe UI', sans-serif";
     ctx.textAlign = "center";
-    lines.forEach((line, j) => ctx.fillText(line, 0, 0 + j * 52));
+    lines.forEach((line, j) => ctx.fillText(line, 0, -6 + j * 48));
     ctx.restore();
   });
   return toTexture(canvas);
@@ -122,7 +108,7 @@ function tintedBoxes(items: Array<{ size: [number, number, number]; pos: [number
   return merged;
 }
 
-const BOOK_COLORS = [palette.brand, "#ff6b6b", palette.cream, "#14b8a6", "#f5c542", "#8b5cf6", "#3a5a98", "#e07a5f", "#2a3550"];
+const BOOK_COLORS = ["#3d5a80", "#c45c4a", "#e6dcc8", "#2f6f62", "#c6a15b", "#5c4d7a", "#3a4e72", "#b56a52", "#2a3550"];
 
 /** A painted panel door with a cream frame, on the right wall. */
 function buildDoor(mats: Materials, z: number) {
@@ -144,7 +130,7 @@ function buildDoor(mats: Materials, z: number) {
     box(0.05, 0.07, w + 0.14, mats.frame, x - 0.025, h + 0.035, z, open),
   );
   // lever handle on a round rose
-  const rose = mesh(new CylinderGeometry(0.028, 0.028, 0.012, 32), mats.metal, open);
+  const rose = mesh(new CylinderGeometry(0.028, 0.028, 0.012, 16), mats.metal, open);
   rose.rotation.z = Math.PI / 2;
   rose.position.set(x - 0.046, 1.02, z - w / 2 + 0.09);
   const lever = rbox(0.022, 0.022, 0.12, 0.008, mats.metal, x - 0.062, 1.02, z - w / 2 + 0.14, open);
@@ -161,10 +147,10 @@ function buildClock(mats: Materials, z: number, timeZone: string) {
   const y = 2.2;
   const r = 0.24;
   const open = { cast: false };
-  const rim = mesh(new CylinderGeometry(r + 0.02, r + 0.02, 0.05, 64), mats.plasticDark, open);
+  const rim = mesh(new CylinderGeometry(r + 0.02, r + 0.02, 0.05, 32), mats.plasticDark, open);
   rim.rotation.z = Math.PI / 2;
   rim.position.set(x - 0.025, y, z);
-  const face = mesh(new CylinderGeometry(r, r, 0.01, 64), mats.paper, open);
+  const face = mesh(new CylinderGeometry(r, r, 0.01, 32), mats.paper, open);
   face.rotation.z = Math.PI / 2;
   face.position.set(x - 0.052, y, z);
   clock.add(rim, face);
@@ -318,24 +304,25 @@ function buildSofa(mats: Materials, cx: number) {
   return { sofa, materials: [fabric] };
 }
 
-/** A ring light on the ceiling in the brand color, with a soft wash around it. */
+/** A recessed ceiling can: metal trim, warm diffuser, a small pool of light. No coloured ring. */
 function buildCeilingLight(mats: Materials, x: number, z: number) {
   const light = group("ceiling-light");
   const y = ROOM.height;
   const open = { cast: false, receive: false };
-  const base = mesh(new CylinderGeometry(0.42, 0.42, 0.03, 64), mats.plasticDark, open);
-  base.position.set(x, y - 0.015, z);
-  const ring = mesh(new TorusGeometry(0.34, 0.014, 12, 96), mats.neon, open);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.set(x, y - 0.034, z);
-  const wash = glowCard(palette.brand, 2.6, 2.6, 0.32);
+  const trim = mesh(new TorusGeometry(0.16, 0.012, 8, 28), mats.metal, open);
+  trim.rotation.x = Math.PI / 2;
+  trim.position.set(x, y - 0.01, z);
+  const diffuser = mesh(new CircleGeometry(0.145, 24), new MeshBasicMaterial({ color: "#fff1d6", toneMapped: false }), open);
+  diffuser.rotation.x = Math.PI / 2;
+  diffuser.position.set(x, y - 0.018, z);
+  const wash = glowCard("#ffe7c2", 1.5, 1.5, 0.1);
   wash.rotation.x = Math.PI / 2;
-  wash.position.set(x, y - 0.004, z);
-  light.add(base, ring, wash);
+  wash.position.set(x, y - 0.03, z);
+  light.add(trim, diffuser, wash);
   return light;
 }
 
-export function createRoom(mats: Materials, opts: { lights: boolean; photo: string; timeZone: string }): RoomParts {
+export function createRoom(mats: Materials, opts: { photo: string; timeZone: string }): RoomParts {
   const disposables: Array<{ dispose(): void }> = [];
   const root = group("room");
   const props: Object3D[] = [];
@@ -407,7 +394,7 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   cactus.position.set(-2.3, 1.12, 1.3);
   win.add(cactus);
   // moonlight pool on the floor
-  const pool = glowCard("#5f86ff", 2.2, 1.5, 0.16);
+  const pool = glowCard("#9eb6e0", 1.6, 1.1, 0.07);
   pool.rotation.x = -Math.PI / 2;
   pool.position.set(-1.55, 0.004, 0.9);
   win.add(pool);
@@ -436,31 +423,35 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   root.add(photo);
   props.push(photo);
 
-  // ---- neon sign "</>" ----------------------------------------------------
-  const neon = group("neon");
-  const s = 0.22;
-  const v = (x: number, y: number) => new Vector3(x * s, y * s, 0);
-  const tubes = [
-    segmentTube([v(-1.0, 0.85), v(-1.85, 0), v(-1.0, -0.85)], 0.02),
-    segmentTube([v(0.45, 1.05), v(-0.45, -1.05)], 0.02),
-    segmentTube([v(1.0, 0.85), v(1.85, 0), v(1.0, -0.85)], 0.02),
-  ];
-  const neonMaterial = mats.neon;
-  for (const geo of tubes) neon.add(mesh(geo, neonMaterial, { cast: false, receive: false }));
-  const backplate = rbox(1.0, 0.6, 0.015, 0.02, new MeshStandardMaterial({ color: "#0b1222", roughness: 0.3, transparent: true, opacity: 0.55 }), 0, 0, -0.03, { cast: false });
-  neon.add(backplate);
-  const neonGlow = glowCard(palette.brand, 2.4, 1.5, 0.5);
-  neonGlow.position.z = -0.035;
-  neon.add(neonGlow);
-  neon.position.set(0.35, 2.22, -2.33);
-  root.add(neon);
-  props.push(neon);
-  let neonLight: PointLight | null = null;
-  if (opts.lights) {
-    neonLight = new PointLight(palette.brandSoft, 1.4, 3.2, 2);
-    neonLight.position.set(0.35, 2.12, -2.05);
-    root.add(neonLight);
+  // ---- framed print above the desk (quiet; no neon, no extra light) --------
+  const print = group("print");
+  const { canvas: printCanvas, ctx: printCtx } = createScaledCanvas(640, 360);
+  const printSky = printCtx.createLinearGradient(0, 0, 0, 360);
+  printSky.addColorStop(0, "#243044");
+  printSky.addColorStop(0.55, "#1a2434");
+  printSky.addColorStop(1, "#121820");
+  printCtx.fillStyle = printSky;
+  printCtx.fillRect(0, 0, 640, 360);
+  printCtx.fillStyle = "rgba(210, 220, 230, 0.16)";
+  for (let i = 0; i < 5; i++) printCtx.fillRect(48 + i * 112, 48, 78, 210);
+  printCtx.fillStyle = "rgba(255, 236, 200, 0.28)";
+  printCtx.fillRect(272, 78, 78, 180);
+  const printRand = mulberry32(19);
+  for (let i = 0; i < 500; i++) {
+    printCtx.fillStyle = `rgba(255,255,255,${printRand() * 0.04})`;
+    printCtx.fillRect(printRand() * 640, printRand() * 360, 1, 1);
   }
+  const printTex = toTexture(printCanvas);
+  const printMat = new MeshStandardMaterial({ map: printTex, roughness: 0.82 });
+  disposables.push(printTex, printMat);
+  const printW = 0.7;
+  const printH = 0.39;
+  const printArt = mesh(new PlaneGeometry(printW, printH), printMat, { cast: false });
+  printArt.position.z = 0.011;
+  print.add(rbox(printW + 0.04, printH + 0.04, 0.018, 0.004, mats.frame, 0, 0, 0, { cast: false }, 2), printArt);
+  print.position.set(0.42, 2.3, -2.388);
+  root.add(print);
+  props.push(print);
 
   // ---- shelf with books and the rubber duck --------------------------------
   const shelf = group("shelf");
@@ -469,27 +460,33 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     box(0.03, 0.12, 0.2, mats.metalDark, 1.2, 1.97, -2.3),
     box(0.03, 0.12, 0.2, mats.metalDark, 2.16, 1.97, -2.3),
   );
-  const bookColors = [palette.brand, "#ff6b6b", palette.cream, "#14b8a6", "#f5c542", "#8b5cf6"];
+  const bookColors = ["#3d5a80", "#c45c4a", "#e6dcc8", "#2f6f62", "#c6a15b", "#5c4d7a"];
   const widths = [0.05, 0.045, 0.06, 0.04, 0.055, 0.045];
   const heights = [0.26, 0.22, 0.28, 0.2, 0.25, 0.23];
+  const shelfBooks: Parameters<typeof tintedBoxes>[0] = [];
   let bx = 1.14;
   bookColors.forEach((color, i) => {
-    const book = rbox(widths[i], heights[i], 0.18, 0.006, new MeshStandardMaterial({ color, roughness: 0.75 }), bx + widths[i] / 2, 2.0725 + heights[i] / 2, -2.28);
-    if (i === bookColors.length - 1) {
-      book.rotation.z = -0.32;
-      book.position.x += 0.04;
-      book.position.y -= 0.012;
-    }
-    shelf.add(book);
-    bx += widths[i] + 0.006;
+    const lean = i === bookColors.length - 1;
+    const bw = widths[i];
+    const bh = heights[i];
+    shelfBooks.push({
+      size: [bw, bh, 0.18],
+      pos: [bx + bw / 2 + (lean ? 0.04 : 0), 2.0725 + bh / 2 - (lean ? 0.012 : 0), -2.28],
+      rotZ: lean ? -0.32 : 0,
+      color,
+    });
+    bx += bw + 0.006;
   });
+  const shelfBookMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.78 });
+  disposables.push(shelfBookMat);
+  shelf.add(mesh(tintedBoxes(shelfBooks), shelfBookMat));
   // rubber duck, the debugging companion
   const duck = group("duck");
-  const body = mesh(new SphereGeometry(0.075, 20, 14), mats.duck);
+  const body = mesh(new SphereGeometry(0.075, 16, 12), mats.duck);
   body.scale.set(1.25, 0.82, 1);
-  const head = mesh(new SphereGeometry(0.052, 20, 14), mats.duck);
+  const head = mesh(new SphereGeometry(0.052, 16, 12), mats.duck);
   head.position.set(0, 0.08, 0.035);
-  const beak = mesh(new SphereGeometry(0.026, 12, 8), mats.orange);
+  const beak = mesh(new SphereGeometry(0.026, 10, 8), mats.orange);
   beak.scale.set(1.2, 0.45, 1.3);
   beak.position.set(0, 0.07, 0.085);
   const eyeGeo = new SphereGeometry(0.008, 8, 6);
@@ -507,8 +504,8 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   // succulent
   const succulent = group(
     "succulent",
-    mesh(new CylinderGeometry(0.05, 0.04, 0.07, 14), mats.paper),
-    mesh(new SphereGeometry(0.05, 24, 16), mats.leafA),
+    mesh(new CylinderGeometry(0.05, 0.04, 0.07, 12), mats.paper),
+    mesh(new SphereGeometry(0.05, 16, 12), mats.leafA),
   );
   succulent.children[0].position.y = 0.035;
   succulent.children[1].position.y = 0.09;
@@ -519,13 +516,14 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
 
   // ---- sticky notes ---------------------------------------------------------
   const notesTex = stickyNotesTexture();
-  disposables.push(notesTex);
+  const noteMat = new MeshStandardMaterial({ map: notesTex, roughness: 0.92 });
+  disposables.push(notesTex, noteMat);
   const notes = group("notes");
   for (let i = 0; i < 3; i++) {
     const geo = new PlaneGeometry(0.15, 0.15);
     const uv = geo.attributes.uv;
     for (let k = 0; k < uv.count; k++) uv.setX(k, (uv.getX(k) + i) / 3);
-    const note = mesh(geo, new MeshStandardMaterial({ map: notesTex, roughness: 0.9 }), { cast: false });
+    const note = mesh(geo, noteMat, { cast: false });
     note.position.set(1.32 + (i % 2) * 0.19, 1.6 - i * 0.12 + (i === 2 ? 0.05 : 0), -2.397);
     note.rotation.z = (i - 1) * 0.06;
     notes.add(note);
@@ -533,62 +531,79 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   root.add(notes);
   props.push(notes);
 
-  // ---- corner plant (kept below the posters) --------------------------------------
+  // ---- corner plant: instanced leaf cards instead of blob spheres -----------
   const plant = group("plant");
+  const soil = new MeshStandardMaterial({ color: "#2a1a12", roughness: 1 });
+  disposables.push(soil);
   plant.add(
-    mesh(new CylinderGeometry(0.24, 0.18, 0.42, 48), mats.pot),
-    mesh(new CylinderGeometry(0.22, 0.22, 0.02, 48), new MeshStandardMaterial({ color: "#2a1a12", roughness: 1 })),
-    mesh(new TorusGeometry(0.235, 0.014, 12, 64), mats.pot),
+    mesh(new CylinderGeometry(0.22, 0.17, 0.38, 20), mats.pot),
+    mesh(new CylinderGeometry(0.2, 0.2, 0.018, 20), soil),
+    mesh(new TorusGeometry(0.21, 0.012, 8, 24), mats.pot),
   );
-  plant.children[0].position.y = 0.21;
-  plant.children[1].position.y = 0.41;
-  plant.children[2].position.y = 0.415;
+  plant.children[0].position.y = 0.19;
+  plant.children[1].position.y = 0.37;
+  plant.children[2].position.y = 0.375;
   plant.children[2].rotation.x = Math.PI / 2;
   const rand = mulberry32(42);
-  const leafMats = [mats.leafA, mats.leafB, mats.leafC];
-  const leaves = group("leaves");
-  // soft foliage blobs: a sphere with gentle noise, shared by every cluster
-  const blob = new SphereGeometry(1, 32, 22);
-  const bp = blob.getAttribute("position");
-  for (let i = 0; i < bp.count; i++) {
-    const x = bp.getX(i);
-    const y = bp.getY(i);
-    const z = bp.getZ(i);
-    const n = 1 + 0.07 * Math.sin(x * 5.1 + y * 3.3) * Math.cos(z * 4.7 - y * 2.1);
-    bp.setXYZ(i, x * n, y * n, z * n);
-  }
-  blob.computeVertexNormals();
+  const leafMap = leafTexture();
+  const leafMat = new MeshStandardMaterial({
+    map: leafMap,
+    alphaTest: 0.45,
+    roughness: 0.78,
+    side: DoubleSide,
+    color: "#ffffff",
+  });
+  disposables.push(leafMap, leafMat);
+  const leafCount = 14;
+  const foliage = new InstancedMesh(new PlaneGeometry(0.2, 0.34), leafMat, leafCount);
+  foliage.castShadow = false;
+  foliage.receiveShadow = false;
+  const leafMatrix = new Matrix4();
+  const leafQuat = new Quaternion();
+  const leafEuler = new Euler();
+  const leafScale = new Vector3();
+  const leafTint = [new Color("#2f8f52"), new Color("#3aaa64"), new Color("#1f6e40"), new Color("#267848")];
   const stems: BufferGeometry[] = [];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + rand() * 0.5;
-    const r = i < 3 ? 0.04 : 0.13 + rand() * 0.1;
-    const h = 0.72 + rand() * 0.4 + (i < 3 ? 0.16 : 0);
-    const leaf = mesh(blob, leafMats[i % 3]);
-    const size = 0.13 + rand() * 0.07;
-    leaf.scale.set(size * 1.15, size * (0.85 + rand() * 0.25), size);
-    leaf.position.set(Math.cos(a) * r, h, Math.sin(a) * r);
-    leaf.rotation.set(rand() * 0.6, rand() * Math.PI, rand() * 0.6);
-    leaves.add(leaf);
-    const stem = new CylinderGeometry(0.007, 0.01, h - 0.4, 8);
-    const tilt = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(Math.cos(a) * r, h - 0.4, Math.sin(a) * r).normalize());
+  for (let i = 0; i < leafCount; i++) {
+    const a = (i / leafCount) * Math.PI * 2 + rand() * 0.35;
+    const radius = i < 3 ? 0.025 : 0.1 + rand() * 0.1;
+    const h = 0.58 + rand() * 0.36 + (i < 3 ? 0.12 : 0);
+    const s = 0.72 + rand() * 0.45;
+    leafEuler.set(-0.3 - rand() * 0.5, a, (rand() - 0.5) * 0.5);
+    leafQuat.setFromEuler(leafEuler);
+    leafScale.set(s * (0.7 + rand() * 0.25), s, 1);
+    leafMatrix.compose(new Vector3(Math.cos(a) * radius, h, Math.sin(a) * radius), leafQuat, leafScale);
+    foliage.setMatrixAt(i, leafMatrix);
+    foliage.setColorAt(i, leafTint[i % leafTint.length]);
+    const stemLen = Math.max(0.12, h - 0.36);
+    const stem = new CylinderGeometry(0.005, 0.008, stemLen, 5);
+    const tilt = new Quaternion().setFromUnitVectors(
+      new Vector3(0, 1, 0),
+      new Vector3(Math.cos(a) * radius, stemLen, Math.sin(a) * radius).normalize(),
+    );
     stem.applyQuaternion(tilt);
-    stem.translate((Math.cos(a) * r) / 2, 0.4 + (h - 0.4) / 2, (Math.sin(a) * r) / 2);
+    stem.translate((Math.cos(a) * radius) / 2, 0.36 + stemLen / 2, (Math.sin(a) * radius) / 2);
     stems.push(stem);
   }
+  foliage.instanceMatrix.needsUpdate = true;
+  if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
+  // Instance matrices sit well outside the plane's own bounds.
+  foliage.frustumCulled = false;
   const stemGeo = mergeGeometries(stems);
   stems.forEach((g) => g.dispose());
-  plant.add(mesh(stemGeo, mats.woodDark));
+  const leaves = group("leaves", mesh(stemGeo, mats.woodDark, { cast: false }), foliage);
   plant.add(leaves);
   plant.position.set(-1.9, 0, -1.9);
   root.add(plant);
   props.push(plant);
 
   // ---- rug ---------------------------------------------------------------------
-  const rugTex = rugTexture(palette.brand);
-  disposables.push(rugTex);
-  const rugTop = new MeshStandardMaterial({ map: rugTex, roughness: 1 });
-  const rug = mesh(new CylinderGeometry(1.2, 1.2, 0.014, 128), [mats.fabric, rugTop, rugTop], { cast: false });
-  rug.position.set(0.45, 0.007, -0.7);
+  const rugTex = rugTexture();
+  const rugMat = new MeshStandardMaterial({ map: rugTex, roughness: 0.96 });
+  const rugSide = new MeshStandardMaterial({ color: "#1c2636", roughness: 0.96 });
+  disposables.push(rugTex, rugMat, rugSide);
+  const rug = mesh(new BoxGeometry(2.05, 0.012, 1.38), [rugSide, rugSide, rugMat, rugSide, rugSide, rugSide], { cast: false });
+  rug.position.set(0.4, 0.006, -0.62);
   root.add(rug);
   props.push(rug);
 
@@ -605,22 +620,18 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
   starParts.forEach((g) => g.dispose());
   star.position.y = 0.075;
   chair.add(star);
-  const casterGeo = new SphereGeometry(0.034, 12, 8);
+  const casterGeo = new SphereGeometry(0.034, 10, 8);
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
-    const c = mesh(casterGeo, mats.black);
+    const c = mesh(casterGeo, mats.black, { cast: false });
     c.position.set(Math.cos(a) * 0.29, 0.034, -Math.sin(a) * 0.29);
     chair.add(c);
   }
-  const lift = mesh(new CylinderGeometry(0.026, 0.03, 0.34, 12), mats.metal);
+  const lift = mesh(new CylinderGeometry(0.026, 0.03, 0.34, 10), mats.metal);
   lift.position.y = 0.26;
   chair.add(lift);
   chair.add(rbox(0.54, 0.09, 0.52, 0.04, mats.fabric, 0, 0.47, 0));
-  const backrest = group(
-    "backrest",
-    rbox(0.5, 0.64, 0.08, 0.04, mats.fabric, 0, 0, 0),
-    box(0.08, 0.5, 0.012, mats.fabricAccent, 0, 0.02, 0.042, { cast: false }),
-  );
+  const backrest = group("backrest", rbox(0.5, 0.64, 0.08, 0.04, mats.fabric, 0, 0, 0));
   backrest.position.set(0, 0.92, 0.27);
   backrest.rotation.x = 0.12;
   chair.add(backrest);
@@ -650,8 +661,6 @@ export function createRoom(mats: Materials, opts: { lights: boolean; photo: stri
     duck,
     chair,
     plant: leaves,
-    neonLight,
-    neonMaterial,
     update: updateClock,
     dispose() {
       disposables.forEach((d) => d.dispose());

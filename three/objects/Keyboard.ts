@@ -353,7 +353,7 @@ function backlightTexture() {
 
 // ------------------------------------------------------------------ keyboard
 
-export type BacklightMode = "rainbow" | "brand" | "off";
+export type BacklightMode = "steady" | "rainbow" | "brand" | "off";
 
 export interface KeyboardParts {
   root: Group;
@@ -377,7 +377,7 @@ export function createKeyboard(mats: Materials, opts: { position: Vector3; rotat
   const plateY = slabH + 0.003;
 
   // ---- aluminium case: bevelled slab + rim with a recessed plate ----------
-  const caseMat = new MeshStandardMaterial({ color: "#253553", metalness: 0.75, roughness: 0.34 });
+  const caseMat = new MeshStandardMaterial({ color: "#2e333b", metalness: 0.78, roughness: 0.38 });
   disposables.push(caseMat);
   const slabGeo = new ExtrudeGeometry(roundedRect(caseW, caseD, 0.014), {
     depth: slabH - 0.004,
@@ -587,7 +587,7 @@ export function createKeyboard(mats: Materials, opts: { position: Vector3; rotat
   root.updateMatrixWorld(true);
 
   // ---- coiled USB-C cable from the back of the keyboard to the monitor -------
-  const cableMat = new MeshStandardMaterial({ color: palette.brand, roughness: 0.45 });
+  const cableMat = new MeshStandardMaterial({ color: "#2a2e33", roughness: 0.62 });
   disposables.push(cableMat);
   const toWorld = (x: number, y: number, z: number) => new Vector3(x, y, z).applyMatrix4(root.matrixWorld);
   const port = toWorld(-0.2, slabH * 0.6, -caseD / 2 - 0.004);
@@ -605,9 +605,9 @@ export function createKeyboard(mats: Materials, opts: { position: Vector3; rotat
     new Vector3(coilEnd.x + 0.1, deskY, coilEnd.z - 0.12),
     new Vector3(coilEnd.x + 0.26, deskY, coilEnd.z - 0.2),
   ]);
-  const coilGeo = new TubeGeometry(coil, 420, 0.0027, 8, false);
-  const leadGeo = new TubeGeometry(lead, 8, 0.0035, 10, false);
-  const tailGeo = new TubeGeometry(tail, 48, 0.003, 8, false);
+  const coilGeo = new TubeGeometry(coil, 64, 0.0026, 5, false);
+  const leadGeo = new TubeGeometry(lead, 6, 0.0032, 5, false);
+  const tailGeo = new TubeGeometry(tail, 18, 0.0028, 5, false);
   disposables.push(coilGeo, leadGeo, tailGeo);
   const cable = group("cable", mesh(coilGeo, cableMat, { receive: false }), mesh(leadGeo, mats.metal, { receive: false }), mesh(tailGeo, cableMat, { receive: false }));
 
@@ -644,7 +644,8 @@ export function createKeyboard(mats: Materials, opts: { position: Vector3; rotat
     mode = next;
     backlight.visible = next !== "off";
     backlightMat.map = next === "rainbow" ? lightTex : null;
-    backlightMat.color.set(next === "rainbow" ? "#ffffff" : palette.brandSoft);
+    backlightMat.color.set(next === "rainbow" ? "#ffffff" : next === "steady" ? "#b7c6d6" : palette.brandSoft);
+    backlightMat.opacity = next === "steady" ? 0.28 : 0.8;
     backlightMat.needsUpdate = true;
   }
 
@@ -667,7 +668,7 @@ export function createKeyboard(mats: Materials, opts: { position: Vector3; rotat
       pressAttr.needsUpdate = true;
     }
     if (mode === "rainbow") lightTex.offset.x = (time * 0.06 * motion) % 1;
-    else if (mode === "brand") backlightMat.opacity = 0.6 + 0.25 * Math.sin(time * 1.4 * motion);
+    else if (mode === "brand") backlightMat.opacity = 0.55 + 0.2 * Math.sin(time * 1.4 * motion);
   }
 
   return {
