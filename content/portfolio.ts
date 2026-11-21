@@ -387,7 +387,7 @@ export const contactSection = {
 
 /** Hero numbers. "Countries served" is derived from the project list so it stays correct. */
 export const stats = [
-  { value: "25+", label: "Projects delivered" },
+  { value: "30+", label: "Projects delivered" },
   { value: String(new Set(projects.map((p) => p.country)).size), label: "Countries served" },
   { value: "+58%", label: "Organic clicks at Markaz" },
 ];
